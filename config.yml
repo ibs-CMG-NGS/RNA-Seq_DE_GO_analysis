@@ -62,6 +62,7 @@ plot_aesthetics:
 
   # Dot Plot (GO & KEGG) 속성
   dotplot:
+    x_axis_variable: "FoldEnrichment" # Dot plot의 x축에 사용할 변수를 선택: "FoldEnrichment" 또는 "GeneRatio"
     show_n_categories: 15    # 표시할 상위 카테고리 개수
     font_size: 12            # 폰트 크기
     low_color: "#FFC300"     # p-value가 낮을 때의 색상 (진한 색)
@@ -87,3 +88,4 @@ go_barplot:
 export:
   # true로 설정하면 .xlsx 엑셀 파일도 함께 생성합니다.
   export_to_excel: true
+

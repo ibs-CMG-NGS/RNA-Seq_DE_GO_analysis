@@ -31,7 +31,7 @@ enrichment:
   # 분석할 유전자 목록: "total", "up", "down" 중에서 원하는 항목만 남기세요.
   gene_lists: ["total", "up", "down"]
   # 실행할 Gene Ontology 목록: "BP", "CC", "MF" 중에서 원하는 항목만 남기세요.
-  go_ontologies: ["BP", "CC", "MF"]
+  go_ontologies: ["BP"]
   pvalue_cutoff: 0.05
   qvalue_cutoff: 0.2
 # -------------------------
@@ -62,7 +62,7 @@ plot_aesthetics:
 
   # Dot Plot (GO & KEGG) 속성
   dotplot:
-    x_axis_variable: "FoldEnrichment" # Dot plot의 x축에 사용할 변수를 선택: "FoldEnrichment" 또는 "GeneRatio"
+    x_axis_variable: "GeneRatio" # Dot plot의 x축에 사용할 변수를 선택: "FoldEnrichment" 또는 "GeneRatio"
     show_n_categories: 15    # 표시할 상위 카테고리 개수
     font_size: 12            # 폰트 크기
     low_color: "#FFC300"     # p-value가 낮을 때의 색상 (진한 색)

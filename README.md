@@ -41,8 +41,8 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
 
 1.  **프로젝트 복제 또는 다운로드**
     ```bash
-    git clone [your-repository-url]
-    cd DESeq2_GO_analysis
+    git clone https://github.com/ibs-CMG-NGS/RNA-Seq_DE_GO_analysis
+    cd RNA-Seq_DE_GO_analysis
     ```
 
 2.  **`config.yml` 설정**
@@ -222,3 +222,4 @@ RNA-Seq_DE_GO_analysis/
 
 
     - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 통계적으로 유의미한 Term들을 걸러낸 후, 그중에서 GeneRatio가 높은 순서대로 결과를 해석하며 중요도의 우선순위를 매기는 데 사용합니다.
+

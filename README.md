@@ -159,7 +159,7 @@ export:
 ## 📁 폴더 구조
 
 ```
-DESeq2_GO_analysis/
+RNA-Seq_DE_GO_analysis/
 ├── .here                       # 프로젝트 루트를 지정하는 표지 파일
 ├── config.yml                  # 모든 경로 및 파라미터 설정
 ├── data/
@@ -219,5 +219,6 @@ DESeq2_GO_analysis/
     - Enrichment Score: GSEA(Gene Set Enrichment Analysis) 방식의 결과로, 전체 유전자의 발현 순위 안에서 특정 유전자 그룹의 방향성 있는 쏠림 현상을 측정하는 더 복잡한 통계 값입니다.
 
 - GeneRatio도 Cutoff 기준이 있나요?
+
 
     - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 통계적으로 유의미한 Term들을 걸러낸 후, 그중에서 GeneRatio가 높은 순서대로 결과를 해석하며 중요도의 우선순위를 매기는 데 사용합니다.

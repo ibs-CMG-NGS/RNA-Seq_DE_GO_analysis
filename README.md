@@ -63,7 +63,8 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
 # -------------------------
 # Project Settings
 # -------------------------
-# "human" 또는 "mouse" 중 분석할 종 선택
+# 분석할 종(species)을 선택합니다: "human" 또는 "mouse"
+# 이 설정에 따라 아래 organism_db와 kegg_code가 자동으로 결정됩니다.
 species: "human"
 
 # -------------------------
@@ -76,46 +77,77 @@ output_dir: "output"
 # -------------------------
 # Analysis Parameters
 # -------------------------
-deseq2:
-  # 메타데이터의 컬럼을 이용한 DESeq2 실험 디자인 (예: "~ condition", "~ batch + condition")
+# DE 분석 관련 설정
+de_analysis:
+  # 사용할 DGE 분석 방법을 선택: "DESeq2", "edgeR", "limma-voom"
+  method: "DESeq2"
+  # 메타데이터의 컬럼을 이용한 실험 디자인
   design_formula: "~ dex"
   # 유의성 기준 (Adjusted p-value)
   padj_cutoff: 0.05
   # Log2 Fold Change 절대값 기준
   log2fc_cutoff: 1.0
 
+# enrichment analysis 관련 설정
 enrichment:
-  # 기능 분석을 수행할 유전자 그룹 목록: "total", "up", "down"
+  # 분석할 유전자 목록: "total", "up", "down" 중에서 원하는 항목만 남기세요.
   gene_lists: ["total", "up", "down"]
-  # 실행할 Gene Ontology 목록: "BP", "CC", "MF"
+  # 실행할 Gene Ontology 목록: "BP", "CC", "MF" 중에서 원하는 항목만 남기세요.
   go_ontologies: ["BP", "CC", "MF"]
   pvalue_cutoff: 0.05
   qvalue_cutoff: 0.2
+# -------------------------
+# Annotation Databases (자동 설정)
+# -------------------------
+# species 설정에 따라 결정되는 값들이므로 직접 수정할 필요가 없습니다.
+databases:
+  human:
+    organism_db: "org.Hs.eg.db"
+    kegg_code: "hsa"
+  mouse:
+    organism_db: "org.Mm.eg.db"
+    kegg_code: "mmu"
 
 # -------------------------
-# Plot Aesthetics
+# Plot Aesthetics (시각화 속성)
 # -------------------------
 plot_aesthetics:
+  # Volcano Plot 속성
   volcano:
-    title: "Volcano Plot of DEGs"
-    up_color: "#FF5733"
-    down_color: "#3375FF"
-    base_color: "grey"
-    point_size: 2.5
-    # p-value가 가장 낮은 상위 N개 유전자에 라벨 표시 (0이면 표시 안함)
-    label_top_n: 10
-    base_font_size: 14
+    title: "Volcano Plot"
+    up_color: "#FF5733"      # 상향 조절 유전자 색상
+    down_color: "#3375FF"    # 하향 조절 유전자 색상
+    base_color: "grey"       # 그 외 유전자 색상
+    point_size: 2.5          # 점 크기
+    label_top_n: 0          # 상위 N개 유전자에 라벨 표시 (0이면 표시 안함)
+    base_font_size: 14       # 기본 폰트 크기
+
+  # Dot Plot (GO & KEGG) 속성
   dotplot:
-    show_n_categories: 15
-    font_size: 12
-    low_color: "#FFC300"
-    high_color: "#C70039"
+    show_n_categories: 15    # 표시할 상위 카테고리 개수
+    font_size: 12            # 폰트 크기
+    low_color: "#FFC300"     # p-value가 낮을 때의 색상 (진한 색)
+    high_color: "#C70039"    # p-value가 높을 때의 색상 (연한 색)
+
+# -------------------------
+# GO Bar Plot Settings
+# -------------------------
+go_barplot:
+  # 플롯에 표시할 상위 GO Term 개수
+  top_n: 10
+  # 종합 플롯에 포함할 Ontology 목록: "BP", "CC", "MF" 중 선택
+  namespaces: ["BP", "CC", "MF"]
+  # 각 Ontology에 대한 막대 색상
+  colors:
+    BP: "#E57373"  # Biological Process
+    CC: "#64B5F6"  # Cellular Component
+    MF: "#81C784"  # Molecular FunctionS
 
 # -------------------------
 # Export Options
 # -------------------------
 export:
-  # true로 설정하면 .xlsx 엑셀 파일도 함께 생성
+  # true로 설정하면 .xlsx 엑셀 파일도 함께 생성합니다.
   export_to_excel: true
 ```
 
@@ -222,4 +254,5 @@ RNA-Seq_DE_GO_analysis/
 
 
     - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 통계적으로 유의미한 Term들을 걸러낸 후, 그중에서 GeneRatio가 높은 순서대로 결과를 해석하며 중요도의 우선순위를 매기는 데 사용합니다.
+
 

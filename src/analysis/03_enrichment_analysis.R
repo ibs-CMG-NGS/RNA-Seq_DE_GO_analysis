@@ -18,7 +18,7 @@ organism_db <- get(organism_db_name)
 dp_aes <- config$plot_aesthetics$dotplot
 
 
-# [수정된 부분] 새로운 결과 파일 이름을 사용합니다.
+# DE 분석 결과를 불러옵니다. 
 res_path <- file.path(output_path, "final_de_results.csv")
 res <- read.csv(res_path, row.names = 1) # row.names=1을 유지하여 유전자 ID를 행 이름으로 사용
 
@@ -76,20 +76,28 @@ for (gene_set in config$enrichment$gene_lists) {
     write.csv(as.data.frame(go_results), file.path(output_path, out_csv))
     
     if (nrow(go_results) > 0) {
-      # [수정] color aesthetic을 -log10(p.adjust)로 변경
-      go_dotplot <- ggplot(go_results, aes(x = GeneRatio, y = fct_reorder(Description, GeneRatio), 
-                                        color = -log10(p.adjust), size = Count)) +
-      geom_point() +
-      # [수정] 색상 스케일을 연속적인 gradient로 변경하고, 범례 제목 수정
-      scale_color_gradient(low = "blue", high = "red") +
-      labs(
-        title = paste("GO Enrichment -", ont, "(", gene_set, "regulated )"),
-        x = "GeneRatio",
-        y = "GO Term",
-        color = "-log10(p.adjust)", # 범례 제목
-        size = "Gene Count"       # 범례 제목
-      ) +
-      theme_minimal(base_size = 14)
+      # config 설정에 따라 x축 변수를 동적으로 선택
+      x_var <- dp_aes$x_axis_variable
+      
+      # y축 정렬을 위해 Description을 factor로 변환
+      plot_df <- as.data.frame(go_results)
+      plot_df$Description <- factor(plot_df$Description, levels = rev(unique(plot_df$Description[order(plot_df[[x_var]])])))
+      
+      # color aesthetic을 -log10(p.adjust)로 변경
+      # ggplot 코드를 최종 형태로 업그레이드
+      go_dotplot <- ggplot(plot_df, aes_string(x = x_var, y = "Description", 
+                                               color = "-log10(p.adjust)", size = "Count")) +
+        geom_point() +
+        scale_color_gradient(low = "blue", high = "red") +
+        labs(
+          title = paste("GO Enrichment -", ont, "(", gene_set, "regulated )"),
+          x = x_var, # 동적으로 x축 라벨 설정
+          y = "GO Term",
+          color = "-log10(p.adjust)",
+          size = "Gene Count"
+        ) +
+        theme_minimal(base_size = 14) +
+        theme(axis.text.y = element_text(size = 10))
       ggsave(file.path(output_path, out_plot), plot = go_dotplot, width = 10, height = 8)
     }
   }
@@ -104,29 +112,30 @@ for (gene_set in config$enrichment$gene_lists) {
   write.csv(as.data.frame(kegg_results), file.path(output_path, out_csv_kegg))
   
   if (nrow(kegg_results) > 0) {
-    # [수정] color aesthetic을 -log10(p.adjust)로 변경
-    kegg_dotplot <- ggplot(kegg_results, aes(x = GeneRatio, y = fct_reorder(Description, GeneRatio), 
-                                        color = -log10(p.adjust), size = Count)) +
-      geom_point() +
-      # [수정] 색상 스케일을 연속적인 gradient로 변경하고, 범례 제목 수정
-      scale_color_gradient(low = "blue", high = "red") +
-      labs(
-        title = paste("KEGG Enrichment -", gene_set, "regulated"),
-        x = "GeneRatio",
-        y = "KEGG Pathway",
-        color = "-log10(p.adjust)", # 범례 제목
-        size = "Gene Count"       # 범례 제목
-      ) +
-      theme_minimal(base_size = 14)
-
-        x = "GeneRatio",
-        y = "GO Term",
-        color = "-log10(p.adjust)", # 범례 제목
-        size = "Gene Count"       # 범례 제목
-      ) +
-      theme_minimal(base_size = 14)
+    # config 설정에 따라 x축 변수를 동적으로 선택
+      x_var <- dp_aes$x_axis_variable
+      
+      # y축 정렬을 위해 Description을 factor로 변환
+      plot_df <- as.data.frame(kegg_results)
+      plot_df$Description <- factor(plot_df$Description, levels = rev(unique(plot_df$Description[order(plot_df[[x_var]])])))
+    
+    # color aesthetic을 -log10(p.adjust)로 변경
+    kegg_dotplot <- ggplot(plot_df, aes_string(x = x_var, y = "Description", 
+                                               color = "-log10(p.adjust)", size = "Count")) +
+        geom_point() +
+        scale_color_gradient(low = "blue", high = "red") +
+        labs(
+          title = paste("KEGG Enrichment -", ont, "(", gene_set, "regulated )"),
+          x = x_var, # 동적으로 x축 라벨 설정
+          y = "KEGG Pathway",
+          color = "-log10(p.adjust)",
+          size = "Gene Count"
+        ) +
+        theme_minimal(base_size = 14) +
+        theme(axis.text.y = element_text(size = 10))
     ggsave(file.path(output_path, out_plot_kegg), plot = kegg_dotplot, width = 10, height = 8)
   }
 }
+
 
 cat("\nEnrichment analysis pipeline finished successfully! 🚀\n")

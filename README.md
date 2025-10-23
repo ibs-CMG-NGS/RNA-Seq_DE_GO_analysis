@@ -49,9 +49,77 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
     프로젝트의 `config.yml` 파일을 열어 자신의 데이터와 분석 목적에 맞게 파라미터를 수정합니다. (아래 config.yml 설명 참고) 특히 `de_analysis` 섹션의 `method`를 확인하세요. 
 
 3.  **파이프라인 실행**
+
+    **방법 1: Jupyter Notebook (GUI 환경)**
+    
     `notebooks/analysis_pipeline.ipynb` 파일을 열고, 첫 번째 셀부터 순서대로 실행(`Shift + Enter`)하세요.
     -   **최초 실행 시:** `Step 0`에서 분석에 필요한 모든 R 패키지를 자동으로 설치합니다.
     -   **분석 완료 후:** `output/` 폴더 아래에 `YYYY-MM-DD_HH-MM-SS` 형식의 폴더가 생성되고, 그 안에 모든 결과물(CSV, PNG)이 저장됩니다.
+
+    **방법 2: 커맨드 라인 (CLI) - Snakemake 등 파이프라인 도구 호환**
+    
+    리눅스 서버나 HPC 환경에서 Snakemake 등의 워크플로우 관리 도구와 함께 사용할 수 있습니다.
+    
+    ```bash
+    # 전체 파이프라인 실행 (의존성 설치 포함)
+    Rscript run_pipeline.R --install-deps
+    
+    # 기본 실행 (config.yml 사용)
+    Rscript run_pipeline.R
+    
+    # 또는 shell 스크립트 사용
+    ./run_pipeline.sh
+    
+    # 특정 config 파일 지정
+    Rscript run_pipeline.R --config my_config.yml
+    
+    # 출력 디렉토리 지정
+    Rscript run_pipeline.R --output results/my_analysis
+    
+    # 특정 분석 단계만 실행
+    Rscript run_pipeline.R --step de           # DE 분석만
+    Rscript run_pipeline.R --step plots        # 플롯 생성만
+    Rscript run_pipeline.R --step enrichment   # Enrichment 분석만
+    Rscript run_pipeline.R --step go_plots     # GO 플롯만
+    
+    # Verbose 모드로 실행 (디버깅용)
+    Rscript run_pipeline.R --verbose
+    
+    # 도움말 보기
+    Rscript run_pipeline.R --help
+    ```
+    
+    **CLI 옵션:**
+    - `--config, -c`: 설정 파일 경로 (기본값: config.yml)
+    - `--output, -o`: 출력 디렉토리 경로 (기본값: output/YYYY-MM-DD_HH-MM-SS)
+    - `--step, -s`: 실행할 분석 단계 (all, de, plots, enrichment, go_plots)
+    - `--install-deps`: R 패키지 자동 설치
+    - `--verbose, -v`: 상세 로그 출력
+    - `--help`: 도움말 표시
+
+### Snakemake 워크플로우 통합
+
+프로젝트에 포함된 `Snakefile`을 사용하여 Snakemake로 파이프라인을 실행할 수 있습니다:
+
+```bash
+# 전체 파이프라인 실행 (4 코어 사용)
+snakemake --cores 4
+
+# Dry-run (실제 실행 없이 계획만 확인)
+snakemake --cores 4 --dry-run
+
+# 특정 단계까지만 실행
+snakemake --cores 4 de_analysis        # DE 분석만
+snakemake --cores 4 enrichment         # Enrichment까지
+
+# DAG 시각화
+snakemake --dag | dot -Tpng > workflow.png
+
+# 결과 정리
+snakemake clean
+```
+
+Snakemake는 자동으로 의존성을 관리하고, 병렬 처리를 수행하며, 실패 시 재시작 기능을 제공합니다.
 
 ---
 

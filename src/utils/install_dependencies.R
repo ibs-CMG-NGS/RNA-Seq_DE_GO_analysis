@@ -1,8 +1,8 @@
 # 파일 경로: src/utils/install_dependencies.R
 
-# --- 1. 핵심 패키지(yaml, here)를 먼저 확인하고 설치합니다 ---
+# --- 1. 핵심 패키지(yaml, here, optparse)를 먼저 확인하고 설치합니다 ---
 # 이 스크립트 자체를 실행하는 데 필수적인 패키지들이므로, 가장 먼저 처리합니다.
-core_packages <- c("yaml", "here")
+core_packages <- c("yaml", "here", "optparse")
 for (pkg in core_packages) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
     cat(paste("Installing core package:", pkg, "\n"))

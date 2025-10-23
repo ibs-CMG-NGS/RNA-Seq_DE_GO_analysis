@@ -151,6 +151,37 @@ cat logs/*_enrichment.log
 snakemake clean
 ```
 
+## Nextflow 통합
+
+Nextflow를 선호하는 경우 `nextflow_pipeline.nf`를 사용할 수 있습니다.
+
+### 기본 실행
+```bash
+# 전체 파이프라인 실행
+nextflow run nextflow_pipeline.nf
+
+# 리포트 생성
+nextflow run nextflow_pipeline.nf -with-report report.html
+```
+
+### 파라미터 지정
+```bash
+# 커스텀 config 사용
+nextflow run nextflow_pipeline.nf --config my_config.yml
+
+# 출력 디렉토리 지정
+nextflow run nextflow_pipeline.nf --outdir results/exp1
+
+# 의존성 설치 포함
+nextflow run nextflow_pipeline.nf --install_deps true
+```
+
+### 재시작 기능
+```bash
+# 실패한 작업만 재실행
+nextflow run nextflow_pipeline.nf -resume
+```
+
 ## Snakemake 고급 설정
 
 ### 특정 config 사용

@@ -121,6 +121,24 @@ snakemake clean
 
 Snakemake는 자동으로 의존성을 관리하고, 병렬 처리를 수행하며, 실패 시 재시작 기능을 제공합니다.
 
+### Nextflow 워크플로우 통합
+
+Nextflow를 선호하는 경우, 프로젝트에 포함된 `nextflow_pipeline.nf`를 사용할 수 있습니다:
+
+```bash
+# 전체 파이프라인 실행
+nextflow run nextflow_pipeline.nf
+
+# 커스텀 config 사용
+nextflow run nextflow_pipeline.nf --config my_config.yml
+
+# 출력 디렉토리 지정
+nextflow run nextflow_pipeline.nf --outdir results/exp1
+
+# 의존성 설치 포함
+nextflow run nextflow_pipeline.nf --install_deps true
+```
+
 ---
 
 ## ⚙️ `config.yml` 상세 설명

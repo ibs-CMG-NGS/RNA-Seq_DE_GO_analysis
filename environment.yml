@@ -1,0 +1,12 @@
+name: rna-seq-de-go-analysis
+channels:
+  - conda-forge
+dependencies:
+  - r-base=4.3
+  - r-optparse
+  - r-yaml
+  - r-here
+  - r-biocmanager
+  - r-tidyverse
+  - r-devtools
+  - r-rcpp

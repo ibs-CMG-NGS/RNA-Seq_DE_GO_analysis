@@ -57,22 +57,29 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
     conda activate rnaseq-analysis
     ```
 
-    - Conda 패키지로는 기본적인 R 런타임과 일부 CRAN 패키지를 설치합니다. Bioconductor 기반의 주요 패키지(DESeq2, edgeR, limma, clusterProfiler 등)는 R의 BiocManager를 사용해 설치하는 것을 권장합니다. 환경을 활성화한 뒤 CLI에서 아래를 실행하세요:
+    - Conda 패키지로는 기본적인 R 런타임과 일부 CRAN 패키지를 설치합니다. Bioconductor 기반의 주요 패키지(DESeq2, edgeR, limma, clusterProfiler 등)는 R의 BiocManager를 사용해 설치하는 것을 권장합니다. Conda 환경에 맞춰 Bioconductor + CRAN 패키지 설치를 순차적으로 진행합니다. 환경을 활성화한 뒤 CLI에서 아래를 실행하세요:
 
     ```bash
-    R -e '
-    if (!requireNamespace("BiocManager", quietly=TRUE)) {
-        install.packages("BiocManager")
-    }
+    Rscript -e '
+    if (!requireNamespace("BiocManager", quietly=TRUE))
+        install.packages("BiocManager", repos="https://cloud.r-project.org")
+    
+    # Core Bioconductor dependencies
     BiocManager::install(c(
-        "DESeq2",
-        "edgeR",
-        "limma",
-        "clusterProfiler",
-        "org.Hs.eg.db",
-        "org.Mm.eg.db",
-        "AnnotationDbi"
-    ))
+        "XVector", "GenomeInfoDb", "Biostrings", "AnnotationDbi",
+        "DelayedArray", "SummarizedExperiment", "KEGGREST", "GenomicRanges",
+        "S4Vectors", "IRanges", "MatrixGenerics"
+    ), ask=FALSE, update=TRUE)
+    
+    # Upper-level Bioconductor packages
+    BiocManager::install(c(
+        "ggtree", "DOSE", "enrichplot", "GOSemSim", "clusterProfiler",
+        "org.Hs.eg.db", "org.Mm.eg.db", "GO.db", "HDO.db",
+        "DESeq2", "edgeR", "limma"
+    ), ask=FALSE, update=TRUE)
+    
+    # CRAN packages
+    install.packages(c("igraph", "ggraph", "shadowtext"), repos="https://cloud.r-project.org")
     '
     ```
 
@@ -323,4 +330,5 @@ RNA-Seq_DE_GO_analysis/
  
 - GeneRatio도 Cutoff 기준이 있나요?
     - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 [...]
+
 

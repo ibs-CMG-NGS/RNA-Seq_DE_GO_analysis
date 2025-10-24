@@ -57,11 +57,23 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
     conda activate rnaseq-analysis
     ```
 
-    - Conda 패키지로는 기본적인 R 런타임과 일부 CRAN 패키지를 설치합니다. Bioconductor 기반의 주요 패키지(DESeq2, edgeR, limma, clusterProfiler 등)는 R의 BiocManager를 사용해 설치하는 것을 권장합니다. 환경을 활성화한 뒤 R에서 아래를 실행하세요:
+    - Conda 패키지로는 기본적인 R 런타임과 일부 CRAN 패키지를 설치합니다. Bioconductor 기반의 주요 패키지(DESeq2, edgeR, limma, clusterProfiler 등)는 R의 BiocManager를 사용해 설치하는 것을 권장합니다. 환경을 활성화한 뒤 CLI에서 아래를 실행하세요:
 
     ```bash
-    R -e 'if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager"); \
-    BiocManager::install(c("DESeq2","edgeR","limma","clusterProfiler","org.Hs.eg.db","org.Mm.eg.db","AnnotationDbi"))'
+    R -e '
+    if (!requireNamespace("BiocManager", quietly=TRUE)) {
+        install.packages("BiocManager")
+    }
+    BiocManager::install(c(
+        "DESeq2",
+        "edgeR",
+        "limma",
+        "clusterProfiler",
+        "org.Hs.eg.db",
+        "org.Mm.eg.db",
+        "AnnotationDbi"
+    ))
+    '
     ```
 
     - 위 명령에서 species가 human이면 `org.Hs.eg.db`를, mouse이면 `org.Mm.eg.db`를 포함하세요.
@@ -311,3 +323,4 @@ RNA-Seq_DE_GO_analysis/
  
 - GeneRatio도 Cutoff 기준이 있나요?
     - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 [...]
+

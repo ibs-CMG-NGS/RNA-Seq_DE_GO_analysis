@@ -1,7 +1,9 @@
 name: rna-seq-de-go-analysis
 channels:
   - conda-forge
+  - bioconda
 dependencies:
+  # R base
   - r-base=4.3
   - r-optparse
   - r-yaml
@@ -10,3 +12,23 @@ dependencies:
   - r-tidyverse
   - r-devtools
   - r-rcpp
+
+  # Bioconductor 패키지 (Conda 설치 가능)
+  - bioconductor-deseq2
+  - bioconductor-edger
+  - bioconductor-limma
+  - bioconductor-clusterprofiler
+  - bioconductor-org.hs.eg.db
+  - bioconductor-org.mm.eg.db
+  - bioconductor-annotationdbi
+  - bioconductor-ggtree
+  - bioconductor-dosexplore
+  - bioconductor-gosemsim
+  - bioconductor-enrichplot
+  - bioconductor-hdo.db
+  - bioconductor-go.db
+
+  # CRAN 패키지 (의존성 보완)
+  - r-igraph
+  - r-ggraph
+  - r-shadowtext

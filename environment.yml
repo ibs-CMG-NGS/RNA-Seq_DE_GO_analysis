@@ -22,7 +22,6 @@ dependencies:
   - bioconductor-org.mm.eg.db
   - bioconductor-annotationdbi
   - bioconductor-ggtree
-  - bioconductor-dosexplore
   - bioconductor-gosemsim
   - bioconductor-enrichplot
   - bioconductor-hdo.db

@@ -34,12 +34,17 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(forcats)
   library(AnnotationDbi) # Needed for mapIds
-  # Ensure the correct organism DB package is loaded based on config
+  # [수정] Ensure the correct organism DB package is loaded AND assigned
   species_info <- config$databases[[config$species]]
-  organism_db_name <- species_info$organism_db
+  organism_db_name <- species_info$organism_db # e.g., "org.Hs.eg.db"
+
+  # Load the library using the string name
   if (!require(organism_db_name, character.only = TRUE)) {
       stop(paste("Required organism DB package", organism_db_name, "is not installed."))
   }
+  # [핵심!] Convert the string name into the actual R object and assign it
+  organism_db <- get(organism_db_name)
+
 })
 
 # --- 2. DE 분석 결과 로드 ---
@@ -180,3 +185,4 @@ for (gene_set in config$enrichment$gene_lists) {
 
 
 cat("\nEnrichment analysis pipeline finished successfully! 🚀\n")
+

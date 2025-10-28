@@ -49,9 +49,19 @@ def get_final_outputs(config, output_dir):
     return files
 
 # --- 3. Target Rule: Define final desired output ---
+# [CORRECTED] Depend on the flag files from the final rules
 rule all:
     input:
-        get_final_outputs(config, OUTPUT_DIR)
+        # Core results from rule run_de_analysis
+        OUTPUT_DIR / "final_de_results.csv",
+        OUTPUT_DIR / "config_used.yml",
+        # Core plots from rule generate_plots
+        OUTPUT_DIR / "pca_plot.png",
+        OUTPUT_DIR / "volcano_plot.png",
+        # Flag file indicating enrichment analysis completion (includes dotplots)
+        OUTPUT_DIR / ".enrichment_done.flag",
+        # Flag file indicating go barplot completion
+        OUTPUT_DIR / ".go_barplots_done.flag"
 
 # --- 4. Analysis Rules ---
 

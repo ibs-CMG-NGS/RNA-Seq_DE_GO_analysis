@@ -159,7 +159,6 @@ REQUIRED_SCRIPTS=(
     "src/analysis/02_generate_plots.R"
     "src/analysis/03_enrichment_analysis.R"
     "src/analysis/04_generate_go_plots.R"
-    "src/utils/install_dependencies.R"
     "src/utils/load_data.R"
 )
 ALL_SCRIPTS_EXIST=true
@@ -188,7 +187,6 @@ if [ $TESTS_FAILED -eq 0 ]; then
     echo ""
     echo "You can now run the pipeline with:"
     echo "  Rscript run_pipeline.R --help"
-    echo "  Rscript run_pipeline.R --install-deps"
     echo "  Rscript run_pipeline.R"
     exit 0
 else

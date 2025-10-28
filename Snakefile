@@ -24,13 +24,6 @@ rule all:
         expand(f"{OUTPUT_DIR}/go_enrichment_{{geneset}}_BP.csv", 
                geneset=["total", "up", "down"])
 
-# Step 0: 의존성 설치 (최초 1회)
-rule install_dependencies:
-    output:
-        touch(".dependencies_installed")
-    shell:
-        "Rscript run_pipeline.R --install-deps --step de && touch {output}"
-
 # Step 1: Differential Expression 분석
 rule de_analysis:
     input:
@@ -134,4 +127,4 @@ rule run_full_pipeline:
 # 클린업 규칙
 rule clean:
     shell:
-        "rm -rf output/*/ logs/*.log .dependencies_installed"
+        "rm -rf output/*/ logs/*.log"

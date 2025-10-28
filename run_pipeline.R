@@ -18,8 +18,6 @@ option_list <- list(
   make_option(c("-s", "--step"), type = "character", default = "all",
               help = "Analysis step to run: 'all', 'de', 'plots', 'enrichment', 'go_plots' [default: %default]",
               metavar = "STEP"),
-  make_option(c("--install-deps"), action = "store_true", default = FALSE,
-              help = "Install required R packages before running analysis"),
   make_option(c("-v", "--verbose"), action = "store_true", default = FALSE,
               help = "Print verbose output")
 )
@@ -33,7 +31,6 @@ opt_parser <- OptionParser(
   Rscript run_pipeline.R --config my_config.yml         # Use custom config file
   Rscript run_pipeline.R --step de                      # Run only DE analysis
   Rscript run_pipeline.R --output my_output_dir         # Specify output directory
-  Rscript run_pipeline.R --install-deps                 # Install dependencies first
 "
 )
 
@@ -64,18 +61,7 @@ cat("============================================================\n")
 cat("  RNA-Seq Differential Expression and GO/KEGG Analysis\n")
 cat("============================================================\n\n")
 
-# 1. 의존성 설치 (옵션)
-if (opt$`install-deps`) {
-  print_info("Installing required R packages...")
-  tryCatch({
-    source(here("src", "utils", "install_dependencies.R"))
-    print_info("All dependencies installed successfully.")
-  }, error = function(e) {
-    print_error(paste("Failed to install dependencies:", e$message))
-  })
-}
-
-# 2. 설정 파일 로드
+# 1. 설정 파일 로드
 config_path <- here(opt$config)
 if (!file.exists(config_path)) {
   print_error(paste("Config file not found:", config_path))
@@ -88,7 +74,7 @@ config <- tryCatch({
   print_error(paste("Failed to load config file:", e$message))
 })
 
-# 3. 출력 디렉토리 설정
+# 2. 출력 디렉토리 설정
 if (is.null(opt$output)) {
   # 타임스탬프 기반 디렉토리 생성
   timestamp <- format(Sys.time(), "%Y-%m-%d_%H-%M-%S")
@@ -109,7 +95,7 @@ if (!dir.exists(output_path)) {
 assign("config", config, envir = .GlobalEnv)
 assign("output_path", output_path, envir = .GlobalEnv)
 
-# 4. 분석 단계 실행
+# 3. 분석 단계 실행
 step <- tolower(opt$step)
 
 run_de_analysis <- function() {

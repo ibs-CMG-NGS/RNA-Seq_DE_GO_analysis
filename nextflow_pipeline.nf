@@ -12,7 +12,6 @@
 // 파라미터 정의
 params.config = "config.yml"
 params.outdir = "output/${workflow.start.format('yyyy-MM-dd_HH-mm-ss')}"
-params.install_deps = false
 
 // 작업 디렉토리
 log.info """
@@ -23,21 +22,6 @@ Config file: ${params.config}
 Output dir : ${params.outdir}
 =========================================
 """
-
-// 의존성 설치 프로세스 (선택적)
-process installDependencies {
-    when:
-    params.install_deps
-
-    output:
-    path '.dependencies_installed' into deps_ch
-
-    script:
-    """
-    Rscript run_pipeline.R --install-deps --step de
-    touch .dependencies_installed
-    """
-}
 
 // DE 분석 프로세스
 process differentialExpression {

@@ -1,11 +1,47 @@
 # 파일 경로: src/analysis/02_generate_plots.R
 
-# 필요한 라이브러리 로드
-library(ggplot2)
-library(ggrepel)
-library(here)
+# --- 1. Setup: Load config and libraries ---
 
-# --- PCA Plot ---
+# Suppress startup messages
+suppressPackageStartupMessages({
+  library(here)
+  library(yaml)
+})
+
+# Get config file path from command line argument
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) == 0) {
+    cat("No config file provided. Using default 'config.yml'\n")
+    config_path <- here("config.yml")
+} else {
+    config_path <- args[1]
+}
+
+# Load the config file
+if (!file.exists(config_path)) {
+  stop(paste("Config file not found at:", config_path))
+}
+config <- yaml.load_file(config_path)
+
+# Define output path based on config (needed for saving plots)
+output_path <- here(config$output_dir)
+# Ensure output directory exists (though Snakemake likely creates it)
+dir.create(output_path, showWarnings = FALSE, recursive = TRUE)
+
+# Load remaining required libraries for this script
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(ggrepel)
+  # Libraries needed only for DESeq2 PCA path
+  if(config$de_analysis$method == "DESeq2") {
+      library(DESeq2)
+      source(here("src", "utils", "create_de_object.R")) # Source the updated function name
+  }
+  # Libraries needed only for edgeR/limma PCA path
+  if(config$de_analysis$method %in% c("edgeR", "limma-voom")) {
+      library(edgeR) # For DGEList, cpm
+  }
+})
 
 # [수정] 1. config 설정에 따라 PCA 데이터 생성 방식을 분기합니다.
 dge_method <- config$de_analysis$method
@@ -118,4 +154,5 @@ geom_hline(yintercept = -log10(config$de_analysis$padj_cutoff), col = "red", lin
   theme(legend.position = "top")
 
 ggsave(file.path(output_path, "volcano_plot.png"), plot = volcano_plot, width = 10, height = 8, dpi = 300)
+
 print("Volcano plot saved.")

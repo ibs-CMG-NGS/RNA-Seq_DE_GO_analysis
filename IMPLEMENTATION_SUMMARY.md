@@ -43,8 +43,9 @@
 
 ### 기본 실행
 ```bash
-# 의존성 설치 및 실행 (최초 1회)
-Rscript run_pipeline.R --install-deps
+# Conda 환경 생성 (최초 1회)
+conda env create -f environment.yml
+conda activate rna-seq-de-go-analysis
 
 # 전체 파이프라인 실행
 Rscript run_pipeline.R
@@ -99,7 +100,7 @@ nextflow run nextflow_pipeline.nf -resume
 |--------|----------|
 | README.md | CLI 사용법 섹션 추가 (50+ 줄) |
 | .gitignore | output 디렉토리 제외 규칙 추가 |
-| install_dependencies.R | optparse 패키지 추가 |
+| environment.yml | 모든 의존성 포함 (R, CRAN, Bioconductor 패키지) |
 
 ---
 
@@ -185,7 +186,7 @@ Rscript run_pipeline.R --verbose
 - Nextflow: `-resume`
 
 ### 의존성 관리
-- 자동 패키지 설치: `--install-deps`
+- Conda 환경을 통한 자동 설치: `environment.yml`
 - 버전 관리: BiocManager를 통한 Bioconductor 패키지
 
 ---
@@ -277,9 +278,10 @@ RNA-Seq_DE_GO_analysis/
 
 사용자는 이제:
 1. `./test_cli.sh` 로 설치 검증
-2. `Rscript run_pipeline.R --install-deps` 로 의존성 설치
-3. `Rscript run_pipeline.R` 로 분석 실행
-4. Snakemake 또는 Nextflow로 대규모 분석 수행
+2. `conda env create -f environment.yml` 로 환경 설정
+3. `conda activate rna-seq-de-go-analysis` 로 환경 활성화
+4. `Rscript run_pipeline.R` 로 분석 실행
+5. Snakemake 또는 Nextflow로 대규모 분석 수행
 
 ---
 

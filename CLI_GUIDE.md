@@ -11,11 +11,6 @@
 
 ## 기본 사용법
 
-### 최초 실행 (의존성 설치 포함)
-```bash
-Rscript run_pipeline.R --install-deps
-```
-
 ### 표준 실행
 ```bash
 # R 스크립트로 직접 실행
@@ -24,6 +19,8 @@ Rscript run_pipeline.R
 # 또는 Shell 스크립트 사용
 ./run_pipeline.sh
 ```
+
+**참고:** 분석에 필요한 모든 의존성은 `environment.yml` 파일을 통해 Conda 환경 생성 시 자동으로 설치됩니다. 환경 설정에 대한 자세한 내용은 [README.md](README.md)를 참조하세요.
 
 ## 옵션 상세 설명
 
@@ -46,11 +43,6 @@ Rscript run_pipeline.R
   - `enrichment`: GO/KEGG enrichment 분석만
   - `go_plots`: GO bar plot 생성만
 - 예제: `--step de`
-
-### `--install-deps`
-- 분석에 필요한 모든 R 패키지를 자동으로 설치합니다
-- 최초 실행 시 또는 새로운 환경에서 실행할 때 사용합니다
-- 예제: `--install-deps`
 
 ### `--verbose, -v`
 - 상세한 로그를 출력합니다 (디버깅 용도)
@@ -171,9 +163,6 @@ nextflow run nextflow_pipeline.nf --config my_config.yml
 
 # 출력 디렉토리 지정
 nextflow run nextflow_pipeline.nf --outdir results/exp1
-
-# 의존성 설치 포함
-nextflow run nextflow_pipeline.nf --install_deps true
 ```
 
 ### 재시작 기능
@@ -230,7 +219,13 @@ cd /path/to/RNA-Seq_DE_GO_analysis
 
 **해결**:
 ```bash
-Rscript run_pipeline.R --install-deps
+# Conda 환경을 사용하는 경우 환경이 제대로 활성화되었는지 확인
+conda activate rna-seq-de-go-analysis
+
+# 환경을 다시 생성해야 하는 경우
+conda env remove -n rna-seq-de-go-analysis
+conda env create -f environment.yml
+conda activate rna-seq-de-go-analysis
 ```
 
 ### 4. "Config file not found"

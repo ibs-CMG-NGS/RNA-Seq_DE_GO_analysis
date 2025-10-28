@@ -66,7 +66,16 @@ for (gene_set in config$enrichment$gene_lists) {
         head(dp_aes$show_n_categories) %>%
         # 4. y축 정렬
         mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]]))
+
+      # Ensure x_var is defined before using it in ggplot (was missing previously)
+      x_var <- dp_aes$x_axis_variable
       
+      # Defensive check: ensure the column exists in plot_df
+      if (! x_var %in% colnames(plot_df)) {
+        message(sprintf("Warning: x_axis_variable '%s' not found in plot_df columns. Available columns: %s",
+                        x_var, paste(colnames(plot_df), collapse = ", ")))
+      }
+                                  
       go_dotplot <- ggplot(plot_df, aes_string(x = x_var, y = "Description", 
                                                color = "-log10(p.adjust)", size = "Count")) +
         geom_point() +
@@ -126,5 +135,6 @@ for (gene_set in config$enrichment$gene_lists) {
   out_csv_kegg <- paste0("kegg_enrichment_", gene_set, ".csv")
   write.csv(as.data.frame(kegg_results), file.path(output_path, out_csv_kegg))
 }
+
 
 cat("\nEnrichment analysis pipeline finished successfully! 🚀\n")

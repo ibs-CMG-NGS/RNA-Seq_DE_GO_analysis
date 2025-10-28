@@ -1,9 +1,37 @@
 # 파일 경로: src/analysis/04_generate_go_plots.R
+# --- 1. Setup: Load config and libraries ---
 
-# 필요한 라이브러리 로드
-library(ggplot2)
-library(dplyr)
-library(here)
+# Suppress startup messages
+suppressPackageStartupMessages({
+  library(here)
+  library(yaml)
+})
+
+# Get config file path from command line argument
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) == 0) {
+    cat("No config file provided. Using default 'config.yml'\n")
+    config_path <- here("config.yml")
+} else {
+    config_path <- args[1]
+}
+
+# Load the config file
+if (!file.exists(config_path)) {
+  stop(paste("Config file not found at:", config_path))
+}
+config <- yaml.load_file(config_path) # Now 'config' is available
+
+# Define output path based on config
+output_path <- here(config$output_dir)
+dir.create(output_path, showWarnings = FALSE, recursive = TRUE)
+
+# Load remaining required libraries for this script
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(dplyr)
+  library(forcats) # Make sure forcats is loaded for fct_reorder
+})
 
 cat("\n--- Running Step 4: Generating GO Bar Plots ---\n")
 
@@ -86,5 +114,6 @@ for (gene_set in gene_sets_to_plot) {
   
   cat(paste("Successfully generated and saved:", output_plot_path, "\n"))
 }
+
 
 cat("\n--- GO Bar Plot generation finished. ---\n")

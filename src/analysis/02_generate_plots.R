@@ -35,7 +35,7 @@ suppressPackageStartupMessages({
   # Libraries needed only for DESeq2 PCA path
   if(config$de_analysis$method == "DESeq2") {
       library(DESeq2)
-      source(here("src", "utils", "create_de_object.R")) # Source the updated function name
+      source(here("src", "utils", "load_data.R")) # Source the updated function name
   }
   # Libraries needed only for edgeR/limma PCA path
   if(config$de_analysis$method %in% c("edgeR", "limma-voom")) {
@@ -156,3 +156,4 @@ geom_hline(yintercept = -log10(config$de_analysis$padj_cutoff), col = "red", lin
 ggsave(file.path(output_path, "volcano_plot.png"), plot = volcano_plot, width = 10, height = 8, dpi = 300)
 
 print("Volcano plot saved.")
+

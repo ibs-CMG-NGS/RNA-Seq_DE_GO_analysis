@@ -45,90 +45,39 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
     cd RNA-Seq_DE_GO_analysis
     ```
 
-2.  **Conda 환경(권장)**
+2.  **Conda 환경 설정 및 의존성 설치**
 
-    이 저장소는 재현 가능한 분석 환경을 위해 Conda 기반 환경 구성을 권장합니다. 아래 예시는 `conda` 사용을 권장합니다.
-
-    - repository 루트에 포함된 `environment.yml` 파일을 사용해서 환경을 생성하세요 (파일 예시는 repository에 같이 제공됩니다).
+    이 저장소는 재현 가능한 분석 환경을 위해 Conda 기반 환경 구성을 제공합니다. 
+    
+    repository 루트에 포함된 `environment.yml` 파일에 필요한 모든 의존성이 정의되어 있습니다. 아래 명령어로 환경을 생성하고 활성화하면 분석에 필요한 모든 패키지가 자동으로 설치됩니다:
 
     ```bash
-    # conda virtual environment
+    # Conda 환경 생성 (모든 의존성 자동 설치)
     conda env create -f environment.yml
-    conda activate rnaseq-analysis
+    
+    # 환경 활성화
+    conda activate rna-seq-de-go-analysis
     ```
 
-    - Conda 패키지로는 기본적인 R 런타임과 일부 CRAN 패키지를 설치합니다. Bioconductor 기반의 주요 패키지(DESeq2, edgeR, limma, clusterProfiler 등)는 R의 BiocManager를 사용해 설치하는 것을 권장합니다. Conda 환경에 맞춰 Bioconductor + CRAN 패키지 설치를 순차적으로 진행합니다. 환경을 활성화한 뒤 CLI에서 아래를 실행하세요:
-
-    ```bash
-    Rscript -e '
-    if (!requireNamespace("BiocManager", quietly=TRUE))
-        install.packages("BiocManager", repos="https://cloud.r-project.org")
-    
-    # Core Bioconductor dependencies
-    BiocManager::install(c(
-        "XVector", "GenomeInfoDb", "Biostrings", "AnnotationDbi",
-        "DelayedArray", "SummarizedExperiment", "KEGGREST", "GenomicRanges",
-        "S4Vectors", "IRanges", "MatrixGenerics"
-    ), ask=FALSE, update=TRUE)
-    
-    # Upper-level Bioconductor packages
-    BiocManager::install(c(
-        "ggtree", "DOSE", "enrichplot", "GOSemSim", "clusterProfiler",
-        "org.Hs.eg.db", "org.Mm.eg.db", "GO.db", "HDO.db",
-        "DESeq2", "edgeR", "limma"
-    ), ask=FALSE, update=TRUE)
-    
-    # CRAN packages
-    install.packages(c("igraph", "ggraph", "shadowtext"), repos="https://cloud.r-project.org")
-    '
-    ```
-
-    - 위 명령에서 species가 human이면 `org.Hs.eg.db`를, mouse이면 `org.Mm.eg.db`를 포함하세요.
-
-    - 환경 생성 후에도, 만약 추가로 CRAN 패키지가 필요하면 R 콘솔이나 스크립트에서 `install.packages()`로 설치할 수 있습니다.
+    `environment.yml` 파일에는 R 런타임, CRAN 패키지, 그리고 Bioconductor 패키지(DESeq2, edgeR, limma, clusterProfiler 등)가 모두 포함되어 있어, 추가 설치 작업 없이 바로 분석을 시작할 수 있습니다.
 
 3.  **`config.yml` 설정**
     프로젝트의 `config.yml` 파일을 열어 자신의 데이터와 분석 목적에 맞게 파라미터를 수정합니다. (아래 config.yml 설명 참고) 특히 `de_analysis` 섹션의 `method`와 `design_formula`를 확인하세요.
 
 4.  **파이프라인 실행**
-    `notebooks/analysis_pipeline.ipynb` 파일을 열고, 첫 번째 셀부터 순서대로 실행(`Shift + Enter`)하세요.
-    -   **최초 실행 시:** `Step 0`에서 분석에 필요한 모든 R 패키지를 자동으로 설치합니다(단, Conda 환경을 사용하면 시스템 의존성 문제가 적습니다).
-    -   **분석 완료 후:** `output/` 폴더 아래에 `YYYY-MM-DD_HH-MM-SS` 형식의 폴더가 생성되고, 그 안에 모든 결과물(CSV, PNG)이 저장됩니다.
-    - 또는 CLI로:
+    
+    Jupyter Notebook으로 실행:
+    - `notebooks/analysis_pipeline.ipynb` 파일을 열고, 첫 번째 셀부터 순서대로 실행(`Shift + Enter`)하세요.
+    - 분석 완료 후 `output/` 폴더 아래에 `YYYY-MM-DD_HH-MM-SS` 형식의 폴더가 생성되고, 그 안에 모든 결과물(CSV, PNG)이 저장됩니다.
+    
+    또는 CLI로 실행:
     ```bash
     Rscript run_pipeline.R --config config.yml
-    # 필요시 의존성 설치 옵션
-    Rscript run_pipeline.R --install-deps
     ```
+    
+    CLI 사용법에 대한 자세한 정보는 [CLI 사용 가이드](CLI_GUIDE.md)와 [CLI 사용 예제](CLI_USAGE_EXAMPLES.md)를 참조하세요.
 
 ---
-
-## Conda 환경 예시 (environment.yml)
-
-루트에 추가된 environment.yml 예시(권장):
-
-```yaml name=environment.yml
-name: rnaseq-analysis
-channels:
-  - conda-forge
-  - defaults
-dependencies:
-  - r-base=4.3
-  - r-optparse
-  - r-yaml
-  - r-here
-  - r-biocmanager
-  - r-tidyverse
-  - r-devtools
-  - r-rcpp
-  - r-data.table
-  - r-readr
-  - r-openxlsx
-  - mamba
-```
-
-- 위 파일은 기본적인 R 실행 환경과 주요 CRAN 패키지를 conda로 설치합니다.
-- Bioconductor 패키지(DESeq2 등)는 R의 BiocManager를 통해 설치하는 것을 권장합니다(위 섹션 참조).
 
 ---
 
@@ -285,7 +234,6 @@ RNA-Seq_DE_GO_analysis/
 │   │── 03_enrichment_analysis.R
 │   └── 04_generate_go_plots.R
 └── utils/                      # 유틸리티 스크립트
-    ├── install_dependencies.R
     └── load_data.R
 ```
 
@@ -296,12 +244,12 @@ RNA-Seq_DE_GO_analysis/
 - 이 패키지는 세 가지의 서로 다른 통계적 접근 방식을 사용하는 DE 분석 알고리즘을 지원합니다. 
 - 각 방법의 특징을 이해하면 당신의 데이터와 연구 목적에 가장 적합한 도구를 선택할 수 있습니다.
 
-| 구분 | [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html) | [edgeR](https://bioconductor.org/packages/release/bioc/html/edgeR.html) | [limma-voom](https://bioconductor.org/p[...]
+| 구분 | [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html) | [edgeR](https://bioconductor.org/packages/release/bioc/html/edgeR.html) | [limma-voom](https://bioconductor.org/packages/release/bioc/html/limma.html) |
 |:------|:--------|:--------|:-------------|
-| **핵심 통계 모델** | 음이항 분포 (Negative Binomial) <br> 엄격한 분산 추정 | 음이항 분포 (Negative Binomial) <br> 유연하고 빠른 분산 추정 | 선형 모델 (Linear Mod[...]
-| **장점** | - 높은 신뢰도: 위양성(False Positive) 억제에 효과적이라 가장 보수적이고 안정적인 결과 제공 <br> - 편리한 사용법: 함수들이 직관적이고 체계[...]
-| **단점** | - 느린 속도: 샘플 수가 많아지면 느려짐 <br> - 보수적 경향: 실제 유의미한 유전자를 놓칠 수 있음 (위음성) | - 덜 보수적: DESeq2보다 위양성��[...]
-| **추천 상황** | 표준 분석, 신뢰도가 중요할 때, 샘플 수가 적을 때 (그룹당 3~5개) | 빠른 분석이 필요하거나 복잡한 실험 디자인, 균형 잡힌 결과를 원�[...]
+| **핵심 통계 모델** | 음이항 분포 (Negative Binomial) <br> 엄격한 분산 추정 | 음이항 분포 (Negative Binomial) <br> 유연하고 빠른 분산 추정 | 선형 모델 (Linear Model) <br> voom을 통한 분산 정규화 |
+| **장점** | - 높은 신뢰도: 위양성(False Positive) 억제에 효과적이라 가장 보수적이고 안정적인 결과 제공 <br> - 편리한 사용법: 함수들이 직관적이고 체계화되어 있음 <br> - 자동화된 정규화: 샘플 간 크기 인자를 자동 계산 | - 빠른 속도: 대용량 데이터셋에서도 신속한 처리 <br> - 유연성: 복잡한 실험 디자인에 대응 가능 <br> - 메모리 효율: 큰 데이터셋에서도 메모리 사용량이 적음 | - 초고속: 세 방법 중 가장 빠른 속도 <br> - 복잡한 디자인 지원: 다중 요인, 반복 측정 등 복잡한 실험 디자인에 강력함 <br> - 유연한 모델링: 선형 모델 프레임워크로 다양한 통계 분석 가능 |
+| **단점** | - 느린 속도: 샘플 수가 많아지면 느려짐 <br> - 보수적 경향: 실제 유의미한 유전자를 놓칠 수 있음 (위음성) | - 덜 보수적: DESeq2보다 위양성 가능성이 약간 높을 수 있음 <br> - 샘플 수가 적을 때: 분산 추정이 불안정할 수 있음 | - 전처리 필요: voom 변환이 필수적 <br> - 음이항 분포 미사용: RNA-seq의 과분산을 직접 모델링하지 않음 <br> - 극단적 저발현 유전자: 처리가 까다로울 수 있음 |
+| **추천 상황** | 표준 분석, 신뢰도가 중요할 때, 샘플 수가 적을 때 (그룹당 3~5개) | 빠른 분석이 필요하거나 복잡한 실험 디자인, 균형 잡힌 결과를 원할 때 | 매우 큰 데이터셋, 복잡한 실험 디자인(다중 요인, 반복 측정 등), 속도가 중요한 탐색적 분석 |
  
 ---
 

@@ -87,5 +87,5 @@ go_barplot:
 # -------------------------
 export:
   # true로 설정하면 .xlsx 엑셀 파일도 함께 생성합니다.
-  export_to_excel: true
+  export_to_excel: false
 

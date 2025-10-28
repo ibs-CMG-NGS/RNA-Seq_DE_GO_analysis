@@ -106,15 +106,34 @@ rule generate_plots:
     shell:
         "Rscript {input.script} {params.config_path} > {log} 2>&1"
 
-# Rule 3: Run Enrichment Analysis (GO & KEGG)
-# Creates many output files dynamically, use a flag file.
 rule enrichment_analysis:
     input:
         script = "src/analysis/03_enrichment_analysis.R",
         config_file = "config.yml",
         de_results = OUTPUT_DIR / "final_de_results.csv"
     output:
-        # Flag file to indicate completion
+        # [수정] 이 규칙이 생성하는 모든 종류의 파일을 명시적으로 선언합니다.
+        # GO 결과 (CSV + Plot)
+        go_csvs = expand(
+            OUTPUT_DIR / "go_enrichment_{geneset}_{ontology}.csv",
+            geneset=config.get("enrichment", {}).get("gene_lists", []),
+            ontology=config.get("enrichment", {}).get("go_ontologies", [])
+        ),
+        go_plots = expand(
+            OUTPUT_DIR / "go_dotplot_{geneset}_{ontology}.png",
+            geneset=config.get("enrichment", {}).get("gene_lists", []),
+            ontology=config.get("enrichment", {}).get("go_ontologies", [])
+        ),
+        # KEGG 결과 (CSV + Plot)
+        kegg_csvs = expand(
+            OUTPUT_DIR / "kegg_enrichment_{geneset}.csv",
+            geneset=config.get("enrichment", {}).get("gene_lists", [])
+        ),
+        kegg_plots = expand(
+            OUTPUT_DIR / "kegg_dotplot_{geneset}.png",
+            geneset=config.get("enrichment", {}).get("gene_lists", [])
+        ),
+        # 완료 플래그 파일 (선택적이지만 유지 가능)
         flag = touch(OUTPUT_DIR / ".enrichment_done.flag")
     params:
         config_path = "config.yml"
@@ -123,26 +142,24 @@ rule enrichment_analysis:
     conda:
         R_ENV_NAME
     shell:
-        # Run script and then create the flag file upon success
+        # 스크립트 실행 후 플래그 파일 생성
         "Rscript {input.script} {params.config_path} > {log} 2>&1 && touch {output.flag}"
 
-# Rule 4: Generate GO Bar Plots
-# Depends on the completion flag from the enrichment rule.
+# Rule 4: GO Barplot 생성 (04_generate_go_plots.R)
 rule go_barplots:
     input:
         script = "src/analysis/04_generate_go_plots.R",
         config_file = "config.yml",
-        enrichment_flag = OUTPUT_DIR / ".enrichment_done.flag",
-        # Needs the enrichment CSVs created by the previous rule
-        # Use an expand to list potential input CSVs dynamically
-        go_csvs = lambda wildcards: [
-            OUTPUT_DIR / f"go_enrichment_{gs}_{ont}.csv"
-            for gs in config.get("enrichment", {}).get("gene_lists", [])
-            for ont in config.get("enrichment", {}).get("go_ontologies", [])
-        ]
+        # [수정] 이제 enrichment_analysis 규칙의 output인 go_csvs를 직접 참조합니다.
+        go_csvs = rules.enrichment_analysis.output.go_csvs,
+        # enrichment_flag는 더 이상 필요하지 않습니다 (위 go_csvs가 의존성을 보장).
     output:
-        # Flag file to indicate completion
-        flag = touch(OUTPUT_DIR / ".go_barplots_done.flag")
+        # [수정] 이 규칙이 생성하는 bar plot 파일들을 명시적으로 선언합니다.
+        barplots = expand(
+            OUTPUT_DIR / "go_barplot_{geneset}.png",
+            geneset=config.get("enrichment", {}).get("gene_lists", [])
+        ),
+        flag = touch(OUTPUT_DIR / ".go_barplots_done.flag") # 완료 플래그 유지
     params:
         config_path = "config.yml"
     log:

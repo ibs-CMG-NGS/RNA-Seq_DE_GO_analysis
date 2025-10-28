@@ -21,9 +21,13 @@ git clone https://github.com/ibs-CMG-NGS/RNA-Seq_DE_GO_analysis
 cd RNA-Seq_DE_GO_analysis
 ```
 
-### 2단계: 의존성 설치 (최초 1회)
+### 2단계: Conda 환경 설정 (최초 1회)
 ```bash
-Rscript run_pipeline.R --install-deps
+# Conda 환경 생성 (모든 의존성 자동 설치)
+conda env create -f environment.yml
+
+# 환경 활성화
+conda activate rna-seq-de-go-analysis
 ```
 
 ### 3단계: 파이프라인 실행
@@ -151,8 +155,12 @@ export PATH="/usr/local/bin:$PATH"
 
 ### 2. "package 'optparse' is not available"
 ```bash
-# 의존성 자동 설치
-Rscript run_pipeline.R --install-deps
+# Conda 환경이 활성화되었는지 확인
+conda activate rna-seq-de-go-analysis
+
+# 또는 환경 재생성
+conda env remove -n rna-seq-de-go-analysis
+conda env create -f environment.yml
 ```
 
 ### 3. 메모리 부족 오류
@@ -183,7 +191,7 @@ chmod +x run_pipeline.R run_pipeline.sh
 
 ## 💡 팁
 
-1. **첫 실행 시간**: 의존성 설치와 첫 분석은 10-20분 정도 소요될 수 있습니다.
+1. **첫 실행 시간**: Conda 환경 생성은 5-10분 정도 소요될 수 있으며, 첫 분석은 10-20분 정도 소요됩니다.
 
 2. **병렬 처리**: Snakemake나 Nextflow를 사용하면 여러 샘플을 병렬로 처리할 수 있어 시간을 절약할 수 있습니다.
 

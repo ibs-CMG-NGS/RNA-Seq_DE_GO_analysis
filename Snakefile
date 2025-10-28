@@ -1,130 +1,148 @@
-# Snakemake 워크플로우 예제
-# RNA-Seq 분석 파이프라인을 Snakemake로 실행하는 예제입니다.
-# 
-# 사용법:
-#   snakemake --cores 4                    # 전체 파이프라인 실행
-#   snakemake --cores 4 de_analysis        # DE 분석만 실행
-#   snakemake --cores 4 enrichment         # Enrichment 분석까지만 실행
+# Snakemake Workflow for RNA-Seq DE & GO Analysis
 
-import os
-from datetime import datetime
+import yaml
+from pathlib import Path
 
-# 설정
-CONFIGFILE = "config.yml"
-TIMESTAMP = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-OUTPUT_DIR = f"output/{TIMESTAMP}"
+# --- 1. Load Configuration ---
+configfile: "config.yml"
 
-# 전체 워크플로우 - 모든 단계의 출력물
+# Output directory from config.yml (should be fixed, e.g., "results")
+OUTPUT_DIR = Path(config["output_dir"])
+
+# R analysis conda environment name (from environment.yml)
+R_ENV_NAME = "rna-seq-de-go-analysis" # environment.yml의 name과 일치해야 함
+
+# --- 2. Helper Function: Define Final Output Files ---
+# Dynamically generates the list of all expected final output files
+def get_final_outputs(config, output_dir):
+    files = []
+    output_dir = Path(output_dir) # Ensure Path object
+
+    # 1. DE analysis results
+    files.append(str(output_dir / "final_de_results.csv"))
+    files.append(str(output_dir / "config_used.yml"))
+    if config.get("export", {}).get("export_to_excel", False):
+        files.append(str(output_dir / "final_de_results.xlsx"))
+
+    # 2. Basic plots
+    files.append(str(output_dir / "pca_plot.png"))
+    files.append(str(output_dir / "volcano_plot.png"))
+
+    # 3. Enrichment analysis results (DotPlots are representative)
+    gene_sets = config.get("enrichment", {}).get("gene_lists", [])
+    ontologies = config.get("enrichment", {}).get("go_ontologies", [])
+
+    for gs in gene_sets:
+        files.append(str(output_dir / f"kegg_dotplot_{gs}.png"))
+        for ont in ontologies:
+            # Check if ontology results are expected based on namespaces in go_barplot
+            if ont in config.get("go_barplot", {}).get("namespaces", []):
+                 files.append(str(output_dir / f"go_dotplot_{gs}_{ont}.png"))
+
+
+    # 4. GO Barplot results
+    for gs in gene_sets:
+         # Check if barplots are expected based on namespaces
+         if config.get("go_barplot", {}).get("namespaces", []):
+              files.append(str(output_dir / f"go_barplot_{gs}.png"))
+
+    return files
+
+# --- 3. Target Rule: Define final desired output ---
 rule all:
     input:
-        f"{OUTPUT_DIR}/final_de_results.csv",
-        f"{OUTPUT_DIR}/pca_plot.png",
-        f"{OUTPUT_DIR}/volcano_plot.png",
-        # enrichment 파일들은 config에 따라 달라질 수 있으므로 동적으로 처리
-        expand(f"{OUTPUT_DIR}/go_enrichment_{{geneset}}_BP.csv", 
-               geneset=["total", "up", "down"])
+        get_final_outputs(config, OUTPUT_DIR)
 
-# Step 1: Differential Expression 분석
-rule de_analysis:
+# --- 4. Analysis Rules ---
+
+# Rule 1: Run Differential Expression Analysis
+rule run_de_analysis:
     input:
-        config=CONFIGFILE,
-        data="data/raw/airway_scaledcounts.csv",
-        metadata="data/raw/airway_metadata.csv"
+        script = "src/analysis/01_run_de_analysis.R",
+        config_file = "config.yml",
+        # Explicitly mention input data files for dependency tracking
+        counts = config["count_data_path"],
+        meta = config["metadata_path"]
     output:
-        results=f"{OUTPUT_DIR}/final_de_results.csv",
-        config_copy=f"{OUTPUT_DIR}/config_used.yml"
+        csv = OUTPUT_DIR / "final_de_results.csv",
+        config_copy = OUTPUT_DIR / "config_used.yml"
+    params:
+        config_path = "config.yml" # Argument for R script
     log:
-        f"logs/{TIMESTAMP}_de_analysis.log"
+        OUTPUT_DIR / "logs/01_run_de_analysis.log"
+    conda:
+        R_ENV_NAME # Specify the R analysis environment
     shell:
-        """
-        Rscript run_pipeline.R \
-            --config {input.config} \
-            --output {OUTPUT_DIR} \
-            --step de \
-            2>&1 | tee {log}
-        """
+        "Rscript {input.script} {params.config_path} > {log} 2>&1"
 
-# Step 2: 시각화 플롯 생성
+# Rule 2: Generate Basic Plots (PCA, Volcano)
 rule generate_plots:
     input:
-        results=f"{OUTPUT_DIR}/final_de_results.csv",
-        config=CONFIGFILE
+        script = "src/analysis/02_generate_plots.R",
+        config_file = "config.yml",
+        de_results = OUTPUT_DIR / "final_de_results.csv",
+        # Also depends on raw data for PCA re-calculation if needed
+        counts = config["count_data_path"],
+        meta = config["metadata_path"]
     output:
-        pca=f"{OUTPUT_DIR}/pca_plot.png",
-        volcano=f"{OUTPUT_DIR}/volcano_plot.png"
+        pca = OUTPUT_DIR / "pca_plot.png",
+        volcano = OUTPUT_DIR / "volcano_plot.png"
+    params:
+        config_path = "config.yml"
     log:
-        f"logs/{TIMESTAMP}_plots.log"
+        OUTPUT_DIR / "logs/02_generate_plots.log"
+    conda:
+        R_ENV_NAME
     shell:
-        """
-        Rscript run_pipeline.R \
-            --config {input.config} \
-            --output {OUTPUT_DIR} \
-            --step plots \
-            2>&1 | tee {log}
-        """
+        "Rscript {input.script} {params.config_path} > {log} 2>&1"
 
-# Step 3: Enrichment 분석
-rule enrichment:
+# Rule 3: Run Enrichment Analysis (GO & KEGG)
+# Creates many output files dynamically, use a flag file.
+rule enrichment_analysis:
     input:
-        results=f"{OUTPUT_DIR}/final_de_results.csv",
-        config=CONFIGFILE
+        script = "src/analysis/03_enrichment_analysis.R",
+        config_file = "config.yml",
+        de_results = OUTPUT_DIR / "final_de_results.csv"
     output:
-        go_total=f"{OUTPUT_DIR}/go_enrichment_total_BP.csv",
-        go_up=f"{OUTPUT_DIR}/go_enrichment_up_BP.csv",
-        go_down=f"{OUTPUT_DIR}/go_enrichment_down_BP.csv"
+        # Flag file to indicate completion
+        flag = touch(OUTPUT_DIR / ".enrichment_done.flag")
+    params:
+        config_path = "config.yml"
     log:
-        f"logs/{TIMESTAMP}_enrichment.log"
+        OUTPUT_DIR / "logs/03_enrichment_analysis.log"
+    conda:
+        R_ENV_NAME
     shell:
-        """
-        Rscript run_pipeline.R \
-            --config {input.config} \
-            --output {OUTPUT_DIR} \
-            --step enrichment \
-            2>&1 | tee {log}
-        """
+        # Run script and then create the flag file upon success
+        "Rscript {input.script} {params.config_path} > {log} 2>&1 && touch {output.flag}"
 
-# Step 4: GO 플롯 생성
-rule go_plots:
+# Rule 4: Generate GO Bar Plots
+# Depends on the completion flag from the enrichment rule.
+rule go_barplots:
     input:
-        go_results=expand(f"{OUTPUT_DIR}/go_enrichment_{{geneset}}_BP.csv",
-                         geneset=["total", "up", "down"]),
-        config=CONFIGFILE
+        script = "src/analysis/04_generate_go_plots.R",
+        config_file = "config.yml",
+        enrichment_flag = OUTPUT_DIR / ".enrichment_done.flag",
+        # Needs the enrichment CSVs created by the previous rule
+        # Use an expand to list potential input CSVs dynamically
+        go_csvs = lambda wildcards: [
+            OUTPUT_DIR / f"go_enrichment_{gs}_{ont}.csv"
+            for gs in config.get("enrichment", {}).get("gene_lists", [])
+            for ont in config.get("enrichment", {}).get("go_ontologies", [])
+        ]
     output:
-        f"{OUTPUT_DIR}/go_barplot_total.png",
-        f"{OUTPUT_DIR}/go_barplot_up.png",
-        f"{OUTPUT_DIR}/go_barplot_down.png"
+        # Flag file to indicate completion
+        flag = touch(OUTPUT_DIR / ".go_barplots_done.flag")
+    params:
+        config_path = "config.yml"
     log:
-        f"logs/{TIMESTAMP}_go_plots.log"
+        OUTPUT_DIR / "logs/04_generate_go_plots.log"
+    conda:
+        R_ENV_NAME
     shell:
-        """
-        Rscript run_pipeline.R \
-            --config {input.config} \
-            --output {OUTPUT_DIR} \
-            --step go_plots \
-            2>&1 | tee {log}
-        """
+        "Rscript {input.script} {params.config_path} > {log} 2>&1 && touch {output.flag}"
 
-# 전체 파이프라인을 한 번에 실행하는 간단한 규칙
-rule run_full_pipeline:
-    input:
-        config=CONFIGFILE,
-        data="data/raw/airway_scaledcounts.csv",
-        metadata="data/raw/airway_metadata.csv"
-    output:
-        f"{OUTPUT_DIR}/pipeline_complete.txt"
-    log:
-        f"logs/{TIMESTAMP}_full_pipeline.log"
-    shell:
-        """
-        Rscript run_pipeline.R \
-            --config {input.config} \
-            --output {OUTPUT_DIR} \
-            --step all \
-            2>&1 | tee {log} && \
-        echo "Pipeline completed at $(date)" > {output}
-        """
-
-# 클린업 규칙
+# --- 5. Optional: Rule to clean results ---
 rule clean:
     shell:
-        "rm -rf output/*/ logs/*.log"
+        "rm -rf {OUTPUT_DIR}"

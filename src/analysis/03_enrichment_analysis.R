@@ -56,6 +56,12 @@ for (gene_set in config$enrichment$gene_lists) {
       
       plot_df <- as.data.frame(go_results)
       
+      # Define x_var and check if it exists in plot_df
+      x_var <- dp_aes$x_axis_variable
+      if (! x_var %in% colnames(plot_df)) {
+        message(sprintf("Warning: x_axis_variable '%s' not found in plot_df columns. Available columns: %s", x_var, paste(colnames(plot_df), collapse = ", ")))
+      }
+      
       # [수정] dplyr 파이프라인으로 데이터 가공을 하나로 합칩니다.
       plot_df <- as.data.frame(go_results) %>%
         # 1. GeneRatio를 숫자로 변환
@@ -66,18 +72,22 @@ for (gene_set in config$enrichment$gene_lists) {
         head(dp_aes$show_n_categories) %>%
         # 4. y축 정렬
         mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]]))
-
-      # Ensure x_var is defined before using it in ggplot (was missing previously)
-      x_var <- dp_aes$x_axis_variable
       
-      # Defensive check: ensure the column exists in plot_df
-      if (! x_var %in% colnames(plot_df)) {
-        message(sprintf("Warning: x_axis_variable '%s' not found in plot_df columns. Available columns: %s",
-                        x_var, paste(colnames(plot_df), collapse = ", ")))
-      }
-                                  
-      go_dotplot <- ggplot(plot_df, aes_string(x = x_var, y = "Description", 
-                                               color = "-log10(p.adjust)", size = "Count")) +
+      # Ensure numeric and handle p.adjust == 0
+      eps <- 1e-300
+      plot_df <- plot_df %>%
+        mutate(p.adjust = as.numeric(p.adjust),
+               Count = as.numeric(Count),
+               p.adjust = ifelse(is.na(p.adjust), NA_real_, ifelse(p.adjust == 0, eps, p.adjust)),
+               log10padj = -log10(p.adjust))
+      
+      bad_count <- plot_df %>% 
+        filter(is.na(.data[[x_var]]) | is.na(log10padj) | is.na(Count) | !is.finite(.data[[x_var]]) | !is.finite(log10padj)) %>% 
+        nrow()
+      message("Rows that will be removed by ggplot due to NA/Inf in mapped aesthetics: ", bad_count)
+      
+      go_dotplot <- ggplot(plot_df, aes(x = .data[[x_var]], y = Description, 
+                                               color = log10padj, size = Count)) +
         geom_point() +
         scale_color_gradient(low = "blue", high = "red") +
         labs(
@@ -100,26 +110,35 @@ for (gene_set in config$enrichment$gene_lists) {
   
   if (!is.null(kegg_results) && nrow(kegg_results) > 0) {
     
+    # Define x_var_kegg and check if it exists in plot_df_kegg
+    x_var_kegg <- dp_aes$x_axis_variable
+    plot_df_kegg <- as.data.frame(kegg_results)
+    if (! x_var_kegg %in% colnames(plot_df_kegg)) {
+      message(sprintf("Warning: x_axis_variable '%s' not found in plot_df_kegg columns. Available columns: %s", x_var_kegg, paste(colnames(plot_df_kegg), collapse = ", ")))
+    }
+    
     # [수정] KEGG 부분도 동일하게 dplyr 파이프라인으로 개선합니다.
     plot_df_kegg <- as.data.frame(kegg_results) %>%
       mutate(GeneRatio = sapply(GeneRatio, function(x) eval(parse(text=x)))) %>%
       arrange(p.adjust) %>%
       head(dp_aes$show_n_categories) %>%
       mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]]))
-
-
-    # 1. p.adjust 기준으로 상위 N개만 선택합니다.
-    plot_df_kegg <- as.data.frame(kegg_results) %>%
-      arrange(p.adjust) %>%
-      head(dp_aes$show_n_categories)
-      
-    # 2. y축을 x축 변수 값에 따라 올바르게 정렬합니다.
-    x_var_kegg <- dp_aes$x_axis_variable
-    plot_df_kegg <- plot_df_kegg %>%
-      mutate(Description = fct_reorder(Description, .data[[x_var_kegg]]))
     
-    kegg_dotplot <- ggplot(plot_df_kegg, aes_string(x = x_var_kegg, y = "Description", 
-                                                 color = "-log10(p.adjust)", size = "Count")) +
+    # Ensure numeric and handle p.adjust == 0
+    eps <- 1e-300
+    plot_df_kegg <- plot_df_kegg %>%
+      mutate(p.adjust = as.numeric(p.adjust),
+             Count = as.numeric(Count),
+             p.adjust = ifelse(is.na(p.adjust), NA_real_, ifelse(p.adjust == 0, eps, p.adjust)),
+             log10padj_kegg = -log10(p.adjust))
+    
+    bad_count_kegg <- plot_df_kegg %>% 
+      filter(is.na(.data[[x_var_kegg]]) | is.na(log10padj_kegg) | is.na(Count) | !is.finite(.data[[x_var_kegg]]) | !is.finite(log10padj_kegg)) %>% 
+      nrow()
+    message("Rows that will be removed by ggplot due to NA/Inf in mapped aesthetics: ", bad_count_kegg)
+    
+    kegg_dotplot <- ggplot(plot_df_kegg, aes(x = .data[[x_var_kegg]], y = Description, 
+                                                 color = log10padj_kegg, size = Count)) +
       geom_point() +
       scale_color_gradient(low = "blue", high = "red") +
       labs(
@@ -135,6 +154,5 @@ for (gene_set in config$enrichment$gene_lists) {
   out_csv_kegg <- paste0("kegg_enrichment_", gene_set, ".csv")
   write.csv(as.data.frame(kegg_results), file.path(output_path, out_csv_kegg))
 }
-
 
 cat("\nEnrichment analysis pipeline finished successfully! 🚀\n")

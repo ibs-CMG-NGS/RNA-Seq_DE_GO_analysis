@@ -1,23 +1,46 @@
 # 파일 경로: src/analysis/03_enrichment_analysis.R
+# --- 1. Setup: Load config and libraries ---
 
-# 필요한 라이브러리 로드
-library(clusterProfiler)
-library(enrichplot)
-library(here)
-library(ggplot2)
-library(dplyr)    # 데이터 가공을 위해 추가
-library(forcats)  # y축 정렬을 위해 추가
+# Suppress startup messages
+suppressPackageStartupMessages({
+  library(here)
+  library(yaml)
+})
 
-# --- 1. 셋업 ---
-species_info <- config$databases[[config$species]]
-organism_db_name <- species_info$organism_db
-kegg_organism <- species_info$kegg_code
-
-if (!require(organism_db_name, character.only = TRUE)) {
-  stop(paste("Genome package", organism_db_name, "is not installed."))
+# Get config file path from command line argument
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) == 0) {
+    cat("No config file provided. Using default 'config.yml'\n")
+    config_path <- here("config.yml")
+} else {
+    config_path <- args[1]
 }
-organism_db <- get(organism_db_name)
-dp_aes <- config$plot_aesthetics$dotplot
+
+# Load the config file
+if (!file.exists(config_path)) {
+  stop(paste("Config file not found at:", config_path))
+}
+config <- yaml.load_file(config_path)
+
+# Define output path based on config
+output_path <- here(config$output_dir)
+dir.create(output_path, showWarnings = FALSE, recursive = TRUE)
+
+# Load remaining required libraries for this script
+suppressPackageStartupMessages({
+  library(clusterProfiler)
+  library(enrichplot)
+  library(ggplot2)
+  library(dplyr)
+  library(forcats)
+  library(AnnotationDbi) # Needed for mapIds
+  # Ensure the correct organism DB package is loaded based on config
+  species_info <- config$databases[[config$species]]
+  organism_db_name <- species_info$organism_db
+  if (!require(organism_db_name, character.only = TRUE)) {
+      stop(paste("Required organism DB package", organism_db_name, "is not installed."))
+  }
+})
 
 # --- 2. DE 분석 결과 로드 ---
 res_path <- file.path(output_path, "final_de_results.csv")
@@ -126,5 +149,6 @@ for (gene_set in config$enrichment$gene_lists) {
   out_csv_kegg <- paste0("kegg_enrichment_", gene_set, ".csv")
   write.csv(as.data.frame(kegg_results), file.path(output_path, out_csv_kegg))
 }
+
 
 cat("\nEnrichment analysis pipeline finished successfully! 🚀\n")

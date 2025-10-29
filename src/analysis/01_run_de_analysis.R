@@ -1,11 +1,51 @@
 # 파일 경로: src/analysis/01_run_de_analysis.R
+# --- 1. Setup: Load config and libraries ---
 
-# 필요한 라이브러리 로드
-library(here)
-library(AnnotationDbi)
+# Suppress startup messages for cleaner logs
+suppressPackageStartupMessages({
+  library(here)
+  library(yaml)
+})
 
-# --- [수정] 1. 공통 데이터 로드 및 객체 생성 ---
-# DGE 분석에 공통적으로 필요한 데이터와 객체를 먼저 준비합니다.
+# Get config file path from command line argument
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args) == 0) {
+    # Default for interactive testing (e.g., in RStudio)
+    cat("No config file provided via command line. Using default 'config.yml'\n")
+    config_path <- here("config.yml")
+} else {
+    config_path <- args[1]
+}
+
+# Load the config file specified by config_path
+if (!file.exists(config_path)) {
+  stop(paste("Config file not found at:", config_path))
+}
+config <- yaml.load_file(config_path) # <--- Make SURE this line exists and is here
+
+# Define output path based on config
+output_path <- here(config$output_dir)
+dir.create(output_path, showWarnings = FALSE, recursive = TRUE)
+
+# Load remaining required libraries AFTER loading config
+suppressPackageStartupMessages({
+  # Add ALL libraries needed for the specific analysis method chosen
+  library(DESeq2)    # Needed if method is DESeq2
+  library(edgeR)     # Needed if method is edgeR or limma-voom
+  library(limma)     # Needed if method is limma-voom
+  library(AnnotationDbi)
+  library(openxlsx)  # Needed for excel export
+  # Ensure the correct organism DB package is loaded based on config
+  species_info <- config$databases[[config$species]]
+  organism_db_name <- species_info$organism_db
+  if (!require(organism_db_name, character.only = TRUE)) {
+      stop(paste("Required organism DB package", organism_db_name, "is not installed."))
+  }
+})
+
+# --- NOW the rest of your script can safely use the 'config' object ---
+
+# --- 2. Common Data Loading ---
 count_data <- read.csv(here(config$count_data_path), row.names = 1)
 meta_data <- read.csv(here(config$metadata_path), row.names = 1)
 design_formula <- as.formula(config$de_analysis$design_formula)
@@ -132,5 +172,6 @@ file.copy(from = here("config.yml"),
           to = file.path(output_path, "config_used.yml"),
           overwrite = TRUE)
 print("Copied config file to output directory for reproducibility.")
+
 
 print(paste(dge_method, "analysis and result saving process finished."))

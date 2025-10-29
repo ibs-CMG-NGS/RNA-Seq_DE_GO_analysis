@@ -1,57 +1,154 @@
-# RNA-seq 데이터 차발현 유전자 탐색 및 GO/KEGG분석 파이프라인 
+# RNA-seq 데이터 차발현 유전자 탐색 및 Gene Ontology Analysis 파이프라인 
 
 ## 📔 프로젝트 개요
 
-본 프로젝트는 RNA-seq 카운트 데이터를 사용하여 차등 발현 유전자(DEG) 분석, 유전자 기능(GO) 및 경로(KEGG) 농축 분석을 수행하는 유연하고 재현성 높은 R 기반 파이프라인입니다.
+본 프로젝트는 RNA-seq 카운트 데이터를 사용하여 차등 발현 유전자(DEGs)를 식별하고, 유전자 기능(GO) 및 경로(KEGG) 농축 분석을 수행하는 **유연하고 재현성 높은 R 기반 분석 패키지**입니다.
 
-이 파이프라인의 가장 큰 특징은 `config.yml` 설정 파일 하나로 `DESeq2`, `edgeR`, `limma-voom` 세 가지의 주요 DE 분석 알고리즘을 자유롭게 선택할 수 있다는 점입니다. 또한 분석 종(Human/Mouse), 실험 디자인, 분석 대상 유전자 그룹, 시각화 옵션, 결과 출력 형식 등 모든 단계를 중앙에서 제어할 수 있도록 설계되었습니다.
-
+중앙 설정 파일(`config.yml`)을 통해 `DESeq2`, `edgeR`, `limma-voom` 세 가지 주요 DE 분석 알고리즘, 분석 종(Human/Mouse), 실험 디자인, 분석 대상 유전자 그룹, 시각화 옵션, 결과 출력 형식 등 모든 단계를 제어할 수 있습니다.
+ 
 airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할 수 있습니다.
 
 ### ✨ 주요 특징
-- 다중 분석 알고리즘 지원: `DESeq2`, `edgeR`, `limma-voom` 중 원하는 DE 분석 방법을 `config` 파일에서 선택하여 실행 가능합니다.
+* **다중 DE 알고리즘 지원**: `config.yml`에서 `DESeq2`, `edgeR`, `limma-voom` 선택 가능.
 
-- 중앙화된 설정: `config.yml` 파일을 통해 모든 파라미터를 중앙에서 관리하여 코드 수정 없이 분석을 제어합니다.
-
-- 유연한 분석 옵션:
-    * 종 선택: `Human` 또는 `Mouse` 데이터 분석을 쉽게 전환할 수 있습니다.
-    * 타겟 유전자 선택: 전체 DEG, 상향(Up-regulated), 하향(Down-regulated) 조절 유전자 그룹에 대한 기능 분석을 선택적으로 수행합니다.
-    * GO Ontology 선택: `BP`, `CC`, `MF` 중 원하는 GO 분석을 자유롭게 조합할 수 있습니다.
-
-- 자동화된 환경 구축: 분석에 필요한 R 패키지를 자동으로 확인하고 설치하여 높은 재현성을 보장합니다.
-
-- 체계적인 결과 관리:
-    * 실행 시마다 타임스탬프가 찍힌 폴더에 모든 결과물이 저장됩니다.
-    * 분석 옵션에 따라 결과 파일 이름이 동적으로 생성됩니다 (예: go_enrichment_up_BP.csv).
-    * CSV와 함께 사용이 편리한 Excel(.xlsx) 파일로 결과 export를 지원합니다.
-
-- 고품질 시각화: config.yml을 통해 플롯의 색상, 폰트 크기, 라벨링 등 세부 속성을 조정하여 논문에 바로 사용할 수 있는 수준의 그래프를 생성합니다.
+* **중앙화된 설정**: 모든 파라미터와 파일 경로는 `config.yml`에서 관리.
+* **유연한 분석 옵션**: 종 선택, 타겟 유전자 그룹(Up/Down/Total), GO Ontology(BP/CC/MF) 조합 분석.
+* **자동화된 환경 관리**: `Conda` 환경 파일을 통해 R 및 모든 패키지 의존성 관리.
+* **체계적인 결과 관리**: 고정된 출력 폴더(`config.yml`에서 지정)에 모든 결과물과 사용된 설정 파일(`config_used.yml`) 저장.
+* **고품질 시각화**: PCA, Volcano plot, GO Dot/Bar plot 등의 세부 속성 제어 가능.
+* **다양한 실행 옵션**: 재현성 높은 파이프라인 실행을 위한 **Snakemake**(권장)와 단계별 실행 및 결과 탐색을 위한 **Jupyter Notebook** 지원.
 
 ---
 
-## 🚀 시작하기
+## 🚀 시작하기: 실행 방법 선택
+이 파이프라인은 두 가지 방식으로 실행할 수 있습니다.
 
-### 사전 요구사항
+1. Snakemake (권장): Linux/macOS 워크스테이션 환경에서 전체 파이프라인을 안정적이고 재현성 있게 실행하는 데 가장 적합합니다. 의존성 관리, 병렬 처리, 부분 재실행 등 강력한 기능을 제공합니다.
 
--   [R](https://www.r-project.org/) (버전 4.2 이상 권장)
--   [RStudio](https://posit.co/download/rstudio-desktop/) 또는 [Visual Studio Code](https://code.visualstudio.com/) (+ R 확장 프로그램)
--   Jupyter Notebook 환경에서 R을 사용하기 위한 [IRkernel](https://irkernel.github.io/)
+2. Jupyter Notebook: Windows 환경 사용자나, 파이프라인의 각 단계를 개별적으로 실행하며 중간 결과를 확인하고 싶을 때 유용합니다.
 
-### 설치 및 실행
+### 프로젝트 복제 또는 다운로드
+방법1과 방법2를 실행하기에 앞서 github repository를 local에 복제하거나 다운로드합니다. 
 
-1.  **프로젝트 복제 또는 다운로드**
-    ```bash
-    git clone https://github.com/ibs-CMG-NGS/RNA-Seq_DE_GO_analysis
-    cd RNA-Seq_DE_GO_analysis
-    ```
+```bash
+#프로젝트 폴더를 다운로드할 폴더로 working directory를 이동 후 아래 명령어를 실행
+git clone https://github.com/ibs-CMG-NGS/RNA-Seq_DE_GO_analysis
 
-2.  **`config.yml` 설정**
-    프로젝트의 `config.yml` 파일을 열어 자신의 데이터와 분석 목적에 맞게 파라미터를 수정합니다. (아래 config.yml 설명 참고) 특히 `de_analysis` 섹션의 `method`를 확인하세요. 
+cd RNA-Seq_DE_GO_analysis #프로젝트 루트로 이동
+```
 
-3.  **파이프라인 실행**
-    `notebooks/analysis_pipeline.ipynb` 파일을 열고, 첫 번째 셀부터 순서대로 실행(`Shift + Enter`)하세요.
-    -   **최초 실행 시:** `Step 0`에서 분석에 필요한 모든 R 패키지를 자동으로 설치합니다.
-    -   **분석 완료 후:** `output/` 폴더 아래에 `YYYY-MM-DD_HH-MM-SS` 형식의 폴더가 생성되고, 그 안에 모든 결과물(CSV, PNG)이 저장됩니다.
+### 🐍 방법 1: Snakemake로 실행하기 (권장)
+Snakemake는 Python 기반의 워크플로우 관리 시스템으로, 규칙(rule) 기반으로 파일 간의 의존성을 정의하고 필요한 작업만 자동으로 실행해 줍니다.
+
+#### 1. 환경 설정 (최초 1회)
+Snakemake는 실행 환경과 분석 환경을 분리하여 관리하는 것이 가장 좋습니다.
+
+a) R 분석 환경 생성: 프로젝트 루트 폴더에서 다음 명령어를 실행하여 `environment.yml`에 정의된 R 및 관련 패키지 환경(`rna-seq-de-go-analysis`)을 생성합니다.
+
+```bash
+conda env create -f environment.yml
+```
+
+b) Snakemake 실행 환경 생성: Snakemake 자체를 실행하기 위한 최소한의 환경(`snakemake_env`)을 생성합니다. 프로젝트 루트에 아래 내용으로 `snakemake_environment.yml` 파일을 만듭니다.
+
+```yaml
+# snakemake_environment.yml
+name: snakemake_env
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - snakemake-minimal >=7.0 # Snakemake 실행에 필요한 최소 패키지
+  - python >=3.8
+  - pyyaml # Snakemake가 config.yml을 읽기 위해 필요
+  # (선택) DAG 시각화를 위한 graphviz 추가 가능
+  # - graphviz
+```
+
+그리고 다음 명령어로 환경을 생성합니다.
+
+```bash
+conda env create -f snakemake_environment.yml
+```
+
+#### 2. 설정 (`config.yml` 수정)
+`config.yml` 파일을 열어 분석할 데이터 경로(`count_data_path`, `metadata_path`), 사용할 DE 분석 방법(`de_analysis.method`), 종(`species`), 출력 폴더(`output_dir` - 고정된 이름 사용, 예: **"results"**) 등 모든 파라미터를 사용자의 환경에 맞게 수정합니다.
+
+#### 3. 파이프라인 실행
+a) Snakemake 환경 활성화:
+
+```bash
+conda activate snakemake_env
+```
+
+b) Snakemake 실행:
+
+```bash
+# 전체 파이프라인 실행 (예: 4개 코어 사용)
+snakemake --cores 4 --use-conda
+
+# --- 유용한 Snakemake 명령어 ---
+
+# 실행 계획 미리보기 (Dry-run, 실제 실행 안 함)
+snakemake --cores 4 --use-conda --dry-run
+# 또는 단축 명령어
+snakemake -np --use-conda
+
+# 특정 규칙(단계)까지만 실행 (예: DE 분석까지만)
+snakemake --cores 4 --use-conda --until run_de_analysis
+
+# 특정 파일 생성 (예: Volcano plot만 다시 생성)
+snakemake --cores 4 --use-conda --force results/volcano_plot.png
+
+# 파이프라인 구조(DAG) 이미지로 보기 (graphviz 설치 필요)
+# snakemake --dag | dot -Tpng > pipeline_dag.png
+
+# 결과 폴더 및 로그 초기화
+snakemake --cores 4 --use-conda clean
+```
+Snakemake는 `Snakefile`에 정의된 규칙에 따라 `config.yml`을 읽고, 각 R 스크립트를 실행할 때 자동으로 `rna-seq-de-go-analysis` 환경을 활성화하여 분석을 수행합니다. 결과는 `config.yml`의 `output_dir`에 지정된 폴더에 저장됩니다.
+
+#### 💡 Snakemake 활용 예시: 여러 조건 실행
+만약 여러 데이터셋이나 파라미터 조합으로 분석을 반복하고 싶다면, `config.yml` 파일을 여러 개 만들고(`config_A.yml`, `config_B.yml`) Snakemake 실행 시 --configfile 옵션으로 지정하면 됩니다.
+
+### 📓 방법 2: Jupyter Notebook으로 실행하기
+이 방법은 각 분석 단계를 직접 실행하고 중간 결과를 확인하는 데 유용합니다.
+
+#### 1. 환경 설정 (최초 1회)
+
+a) R 분석 환경 생성: Snakemake 방식과 동일하게, 프로젝트 루트 폴더에서 다음 명령어를 실행하여 `environment.yml`에 정의된 R 분석 환경(`rna-seq-de-go-analysis`)을 생성합니다.
+
+```bash
+conda env create -f environment.yml
+```
+
+b) Jupyter Notebook 및 R 커널 설치: 생성된 R 분석 환경에 Jupyter Notebook과 IRkernel을 설치합니다.
+
+```bash
+conda activate rna-seq-de-go-analysis
+conda install jupyter notebook -c conda-forge
+Rscript -e 'install.packages("IRkernel"); IRkernel::installspec(user = FALSE)'
+```
+(user = FALSE는 시스템 전체에 커널을 등록하여 Jupyter에서 찾기 쉽게 합니다.)
+
+#### 2. 설정 (`config.yml` 수정)
+`config.yml` 파일을 열어 분석할 데이터 경로, DE 분석 방법, 종, 출력 폴더 등 모든 파라미터를 수정합니다. Jupyter 방식에서는 R 스크립트가 타임스탬프 기반의 출력 폴더를 생성할 수 있으므로 `output_dir` 설정은 선택사항입니다. (현재 R 스크립트는 `config.yml`의 `output_dir`을 사용하도록 되어 있으므로, Snakemake와 동일하게 고정된 폴더 이름을 지정하는 것이 좋습니다.)
+
+#### 3. 파이프라인 실행
+a) R 분석 환경 활성화:
+
+```bash
+conda activate rna-seq-de-go-analysis
+```
+
+b) Jupyter Notebook 실행:
+
+```bash
+jupyter notebook
+```
+c) 노트북 파일 열기 및 실행: 웹 브라우저에서 notebooks/analysis_pipeline.ipynb 파일을 열고, 첫 번째 셀부터 순서대로 실행(Shift + Enter)합니다. 각 셀은 src/analysis/ 폴더의 R 스크립트를 호출하여 해당 분석 단계를 수행합니다.
+
+주의: Jupyter 방식에서는 install_dependencies.R 스크립트를 사용하지 않습니다. 모든 패키지는 Conda 환경 생성 시 설치됩니다. 노트북의 Step 0 셀은 삭제하거나 주석 처리해야 합니다.
 
 ---
 
@@ -157,15 +254,16 @@ export:
 
 ### `01_run_de_analysis.R`
 
--   **목적:** 차발현 유전자(Differential Gene Expression, DGE) 분석을 수행하고, 유전자 심볼을 Annotation합니다.
+-   **목적:** `config` 설정에 따라 `DESeq2`, `edgeR`, `limma-voom` 중 하나로 차발현 유전자 분석(Defferential expression analysis)을 수행. 유전자 심볼 Annotation, 정규화 카운트와 결과 병합.
 -   **입력:** `data/raw/` 폴더의 카운트 및 메타 데이터
 -   **출력:** 
     - `final_de_results.csv`: 정규화된 카운트 + 유전자별 DGE 분석 결과 (log2FoldChange, p-value, padj 등)
-    - `final_de_results.xlsx`: 위의 결과를 엑셀 파일
+    - `final_de_results.xlsx`: 위의 결과를 엑셀 파일 형식으로 저장.
+    - `config_used.yml`: 분석에 사용된 `config` 파일의 복사본 
 
 ## `02_generate_plots.R`
 
--   **목적:** DGE 분석 결과를 바탕으로 주요 시각화 자료를 생성합니다.
+-   **목적:** 분석 방법에 맞는 방식(Vst 또는 LogCPM)으로 PCA 플롯 생성. `config` 설정에 맞춘 Volcano 플롯 생성.
 -   **입력:** `final_de_results.csv`, 원본 카운트 데이터
 -   **출력:**
     - `pca_plot.png`: 샘플 간의 관계를 보여주는 PCA 플롯
@@ -173,15 +271,15 @@ export:
 
 ## `03_enrichment_analysis.R`
 
--   **목적:** config 파일 설정에 따라 지정된 유전자 그룹과 Ontology 조합에 대한 모든 기능 농축 분석(GO & KEGG)을 자동으로 수행합니다.
+-   **목적:** `config` 설정(Up/Down/Total, BP/CC/MF)에 따라 GO/KEGG 농축 분석 수행. 4가지 지표(`FoldEnrichment`/`GeneRatio`, `Count`, `p.adjust`)를 시각화하는 Dot Plot(버블 차트) 생성.
 -   **입력:** `final_de_results.csv`
 -   **출력:**
-    - `go_enrichment_{up|down|total}_{BP|CC|MF}.csv`, `go_dotplot_{up|down|total}_{BP|CC|MF}.png`: Gene Ontology(GO) 분석 결과 및 시각화, 차발현 유전자 속성과 
+    - `go_enrichment_{up|down|total}_{BP|CC|MF}.csv`, `go_dotplot_{up|down|total}_{BP|CC|MF}.png`: Gene Ontology(GO) 분석 결과 및 시각화
     - `kegg_enrichment_{up|down|total}.csv`, `kegg_dotplot_{up|down|total}.png`: KEGG Pathway 분석 결과 및 시각화
 
 ## `04_generate_go_plots.R`
 
--   **목적** config 파일 설정과 분석 결과를 바탕으로 GO 분석 결과를 bar plot으로 생성합니다. 
+-   **목적** `config` 설정에 따라 GO 결과를 취합하여 Ontology별(BP, CC, MF) 3x1 Subplot 형태의 Bar plot 생성. 
 -   **입력** `go_enrichment_{up|down|total}_{BP|CC|MF}.csv`
 -   **출력** 
     - `go_barplot_{up|down|total}.png`: 3x1의 세로 레이아웃을 갖는 bar plot. 위에서부터 아래로 `BP`, `CC`, `MF` 순으로 정렬 
@@ -193,22 +291,25 @@ export:
 ```
 RNA-Seq_DE_GO_analysis/
 ├── .here                       # 프로젝트 루트를 지정하는 표지 파일
-├── config.yml                  # 모든 경로 및 파라미터 설정
+├── config.yml                  # ★ 모든 분석 설정
+├── environment.yml             # ★ R 분석 환경 정의
+├── snakemake_environment.yml   # ★ (권장) Snakemake 실행 환경 정의
 ├── data/
 │   ├── raw/                    # 원본 데이터 (counts, metadata)
 │   └── processed/              # (현재 사용 안함, 필요시 가공 데이터 저장)
 ├── notebooks/
-│   └── analysis_pipeline.ipynb # 전체 파이프라인을 실행하는 메인 노트북
-├── output/                     # 모든 분석 결과물이 저장되는 폴더
-└── src/
-├── analysis/                   # 핵심 분석 단계별 스크립트
-│   ├── 01_run_deseq2.R
-│   ├── 02_generate_plots.R
-│   │── 03_enrichment_analysis.R
-│   └── 04_generate_go_plots.R
-└── utils/                      # 유틸리티 스크립트
-    ├── install_dependencies.R
-    └── load_data.R
+│   └── analysis_pipeline.ipynb # Jupyter 실행용 노트북
+├── output/                     # 분석 결과 저장 폴더
+├── src/
+│   ├── analysis/                   # 핵심 분석 단계별 스크립트
+│   │   ├── 01_run_de_analysis.R
+│   │   ├── 02_generate_plots.R
+│   │   │── 03_enrichment_analysis.R
+│   │   └── 04_generate_go_plots.R
+│   └── utils/                      # 유틸리티 스크립트
+│        └── load_data.R
+├── Snakefile                   # ★ (권장) Snakemake 파이프라인 정의
+└── README.md                   # 프로젝트 설명 및 사용 방법
 ```
 
 ---
@@ -220,39 +321,37 @@ RNA-Seq_DE_GO_analysis/
 
 | 구분 | [DESeq2](https://bioconductor.org/packages/release/bioc/html/DESeq2.html) | [edgeR](https://bioconductor.org/packages/release/bioc/html/edgeR.html) | [limma-voom](https://bioconductor.org/packages/release/bioc/html/limma.html) |
 |:------|:--------|:--------|:-------------|
-| **핵심 통계 모델** | 음이항 분포 (Negative Binomial) <br> 엄격한 분산 추정 | 음이항 분포 (Negative Binomial) <br> 유연하고 빠른 분산 추정 | 선형 모델 (Linear Model) + 정규분포 <br> 로그 변환된 카운트 데이터에 적용 |
-| **장점** | - 높은 신뢰도: 위양성(False Positive) 억제에 효과적이라 가장 보수적이고 안정적인 결과 제공 <br> - 편리한 사용법: 함수들이 직관적이고 체계적 <br> - 가장 큰 커뮤니티: 관련 자료를 찾기 쉬움 | - 가장 빠른 속도: 분석 속도가 매우 빠름 <br> - 높은 유연성: 복잡한 실험 디자인(GLM)에 강함 <br> - 균형 잡힌 성능: 속도와 정확도의 균형이 우수 | - 많은 샘플 수에 강력: 그룹당 샘플 수가 많아질수록(6개 이상) 성능 향상 <br> - 검증된 통계 기법: 오랫동안 검증된 선형 모델과 베이지안 통계 사용 |
-| **단점** | - 느린 속도: 샘플 수가 많아지면 느려짐 <br> - 보수적 경향: 실제 유의미한 유전자를 놓칠 수 있음 (위음성) | - 덜 보수적: DESeq2보다 위양성이 약간 더 높을 수 있음 | - 적은 샘플 수에 불리: 그룹당 샘플 수가 적을 때(3개 미만) 통계적 힘 약화 |
-| **추천 상황** | 표준 분석, 신뢰도가 중요할 때, 샘플 수가 적을 때 (그룹당 3~5개) | 빠른 분석이 필요하거나 복잡한 실험 디자인, 균형 잡힌 결과를 원할 때 | 샘플 수가 충분히 많을 때 (그룹당 6개 이상) |
-
+| **핵심 통계 모델** | 음이항 분포 (Negative Binomial) <br> 엄격한 분산 추정 | 음이항 분포 (Negative Binomial) <br> 유연하고 빠른 분산 추정 | 선형 모델 (Linear Model) <br> voom을 통한 분산 정규화 |
+| **장점** | - 높은 신뢰도: 위양성(False Positive) 억제에 효과적이라 가장 보수적이고 안정적인 결과 제공 <br> - 편리한 사용법: 함수들이 직관적이고 체계화되어 있음 <br> - 자동화된 정규화: 샘플 간 크기 인자를 자동 계산 | - 빠른 속도: 대용량 데이터셋에서도 신속한 처리 <br> - 유연성: 복잡한 실험 디자인에 대응 가능 <br> - 메모리 효율: 큰 데이터셋에서도 메모리 사용량이 적음 | - 초고속: 세 방법 중 가장 빠른 속도 <br> - 복잡한 디자인 지원: 다중 요인, 반복 측정 등 복잡한 실험 디자인에 강력함 <br> - 유연한 모델링: 선형 모델 프레임워크로 다양한 통계 분석 가능 |
+| **단점** | - 느린 속도: 샘플 수가 많아지면 느려짐 <br> - 보수적 경향: 실제 유의미한 유전자를 놓칠 수 있음 (위음성) | - 덜 보수적: DESeq2보다 위양성 가능성이 약간 높을 수 있음 <br> - 샘플 수가 적을 때: 분산 추정이 불안정할 수 있음 | - 전처리 필요: voom 변환이 필수적 <br> - 음이항 분포 미사용: RNA-seq의 과분산을 직접 모델링하지 않음 <br> - 극단적 저발현 유전자: 처리가 까다로울 수 있음 |
+| **추천 상황** | 표준 분석, 신뢰도가 중요할 때, 샘플 수가 적을 때 (그룹당 3~5개) | 빠른 분석이 필요하거나 복잡한 실험 디자인, 균형 잡힌 결과를 원할 때 | 매우 큰 데이터셋, 복잡한 실험 디자인(다중 요인, 반복 측정 등), 속도가 중요한 탐색적 분석 |
+ 
 ---
 
 ## 💡 주요 개념 (FAQ)
 
 ### DE 분석 및 데이터 관련
 - Normalized Counts와 FPKM의 차이점은 무엇인가요?
-    -둘 다 시퀀싱 깊이를 보정하지만, FPKM은 유전자 길이까지 추가로 보정합니다. DE 분석은 동일 유전자를 샘플 간에 비교하는 것이므로, 변하지 않는 값인 유전자 길이를 보정할 필요가 없습니다. 따라서 DESeq2, edgeR 등이 사용하는 `normalized_counts`(또는 CPM) 방식이 현대 DE 분석의 표준입니다.
-
+    -둘 다 시퀀싱 깊이를 보정하지만, FPKM은 유전자 길이까지 추가로 보정합니다. DE 분석은 동일 유전자를 샘플 간에 비교하는 것이므로, 변하지 않는 �[...]
+ 
 - Ensembl ID는 있는데 왜 유전자 심볼(Gene Symbol)은 비어있나요?
-    - 오류가 아니며, 주로 생물학적인 이유 때문입니다. Non-coding Genes (단백질 미생성 유전자), 아직 기능이 밝혀지지 않은 Novel Genes (신규 유전자) 등은 공식 유전자 심볼이 없는 경우가 많습니다.
+    - 오류가 아니며, 주로 생물학적인 이유 때문입니다. Non-coding Genes (단백질 미생성 유전자), 아직 기능이 밝혀지지 않은 Novel Genes (신규 유전자) 등은 �[...]
 
 ### 기능 농축 분석 (Enrichment Analysis) 관련
 - pvalue_cutoff와 qvalue_cutoff는 무엇인가요?
-    - P-value Cutoff는 "이 GO Term이 농축된 것이 우연일 확률"에 대한 느슨한 1차 필터입니다. (pvalue_cutoff: 0.05 -> 우연일 확률이 5% 미만인 후보들을 일단 선별)
-    - Q-value Cutoff는 수천 개의 GO Term을 동시에 검정할 때 발생하는 통계적 오류(위양성)를 보정한 엄격한 최종 필터입니다. "유의미하다고 선언한 결과 중 최대 20%는 위양성일 수 있음을 감수하겠다"는 의미로, **FDR(False Discovery Rate)**과 같은 개념입니다.
-
+    - P-value Cutoff는 "이 GO Term이 농축된 것이 우연일 확률"에 대한 느슨한 1차 필터입니다. (pvalue_cutoff: 0.05 -> 우연일 확률이 5% 미만인 후보들을 일단 선별[...]
+    - Q-value Cutoff는 수천 개의 GO Term을 동시에 검정할 때 발생하는 통계적 오류(위양성)를 보정한 엄격한 최종 필터입니다. "유의미하다고 선언한 결과 ��[...]
+ 
 - Dot plot의 Count와 GeneRatio는 무엇을 의미하나요?
-    - Count (점의 크기): 분석에 사용한 내 유전자 목록 중, 특정 GO Term에 포함되는 유전자의 개수입니다. 점이 클수록 더 많은 유전자가 그 기능에 관여한다는 의미입니다.
-    - GeneRatio (x축 위치): Count를 분석에 사용한 전체 유전자 개수로 나눈 값(비율)입니다. 이 값이 높을수록(오른쪽), 해당 기능이 내 유전자 목록 전체에서 차지하는 생물학적 중요도 또는 비중이 크다는 의미입니다.
-
+    - Count (점의 크기): 분석에 사용한 내 유전자 목록 중, 특정 GO Term에 포함되는 유전자의 개수입니다. 점이 클수록 더 많은 유전자가 그 기능에 관여한[...]
+    - GeneRatio (x축 위치): Count를 분석에 사용한 전체 유전자 개수로 나눈 값(비율)입니다. 이 값이 높을수록(오른쪽), 해당 기능이 내 유전자 목록 전체에�[...]
+ 
 - GeneRatio와 Enrichment Score는 비슷한 개념인가요?
     - 아닙니다, 두 개념은 다른 분석 방식에서 나옵니다.
     - GeneRatio: 우리가 사용하는 ORA(Over-Representation Analysis) 방식의 결과로, 미리 선별된 유의미한 유전자 목록 내에서의 비율을 나타냅니다.
-    - Enrichment Score: GSEA(Gene Set Enrichment Analysis) 방식의 결과로, 전체 유전자의 발현 순위 안에서 특정 유전자 그룹의 방향성 있는 쏠림 현상을 측정하는 더 복잡한 통계 값입니다.
-
+    - Enrichment Score: GSEA(Gene Set Enrichment Analysis) 방식의 결과로, 전체 유전자의 발현 순위 안에서 특정 유전자 그룹의 방향성 있는 쏠림 현상을 측정하는 ��[...]
+ 
 - GeneRatio도 Cutoff 기준이 있나요?
-
-
-    - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 통계적으로 유의미한 Term들을 걸러낸 후, 그중에서 GeneRatio가 높은 순서대로 결과를 해석하며 중요도의 우선순위를 매기는 데 사용합니다.
+    - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 [...]
 
 

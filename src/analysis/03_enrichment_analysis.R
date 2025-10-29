@@ -4,7 +4,7 @@
 # Suppress startup messages
 suppressPackageStartupMessages({
   library(here)
-  library.dynam('yaml', 'yaml', '/home/ygkim/program/anaconda3/envs/rna-seq-de-go-analysis/lib/R/library') # Trying explicit load just in case
+  #library.dynam('yaml', 'yaml', '/home/ygkim/program/anaconda3/envs/rna-seq-de-go-analysis/lib/R/library') # Trying explicit load just in case
   library(yaml)
 })
 
@@ -251,3 +251,4 @@ for (gene_set in config$enrichment$gene_lists) {
   
 }
 cat("\nEnrichment analysis pipeline finished successfully! 🚀\n")
+

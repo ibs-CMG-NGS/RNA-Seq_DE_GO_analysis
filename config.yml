@@ -31,7 +31,7 @@ enrichment:
   # 분석할 유전자 목록: "total", "up", "down" 중에서 원하는 항목만 남기세요.
   gene_lists: ["total", "up", "down"]
   # 실행할 Gene Ontology 목록: "BP", "CC", "MF" 중에서 원하는 항목만 남기세요.
-  go_ontologies: ["BP"]
+  go_ontologies: ["BP", "CC", "MF"]
   pvalue_cutoff: 0.05
   qvalue_cutoff: 0.2
 # -------------------------
@@ -87,5 +87,5 @@ go_barplot:
 # -------------------------
 export:
   # true로 설정하면 .xlsx 엑셀 파일도 함께 생성합니다.
-  export_to_excel: false
+  export_to_excel: true
 

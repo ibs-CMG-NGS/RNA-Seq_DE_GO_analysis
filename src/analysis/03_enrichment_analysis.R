@@ -4,52 +4,115 @@
 # Suppress startup messages
 suppressPackageStartupMessages({
   library(here)
+  library.dynam('yaml', 'yaml', '/home/ygkim/program/anaconda3/envs/rna-seq-de-go-analysis/lib/R/library') # Trying explicit load just in case
   library(yaml)
 })
 
-# Get config file path from command line argument
+# Get config file path
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) == 0) {
-    cat("No config file provided. Using default 'config.yml'\n")
+    cat("[DEBUG] No config path from args, using default.\n")
     config_path <- here("config.yml")
 } else {
+    cat(paste("[DEBUG] Config path from args:", args[1], "\n"))
     config_path <- args[1]
 }
 
-# Load the config file
+# Check if config file exists
 if (!file.exists(config_path)) {
-  stop(paste("Config file not found at:", config_path))
+  stop(paste("[FATAL] Config file not found at:", config_path))
 }
-config <- yaml.load_file(config_path)
+cat(paste("[DEBUG] Config file found at:", config_path, "\n"))
 
-# Define output path based on config
+# Load the config file
+config <- NULL # Initialize to NULL
+tryCatch({
+    config <- yaml.load_file(config_path)
+    cat("[DEBUG] Config file loaded successfully.\n")
+}, error = function(e){
+    stop(paste("[FATAL] Failed to load or parse config YAML:", e$message))
+})
+
+# Check if config object is valid
+if (is.null(config)) {
+    stop("[FATAL] Config object is NULL after loading.")
+}
+cat("[DEBUG] Config object is not NULL.\n")
+
+# Define output path
 output_path <- here(config$output_dir)
 dir.create(output_path, showWarnings = FALSE, recursive = TRUE)
+cat(paste("[DEBUG] Output path set to:", output_path, "\n"))
 
-# Load remaining required libraries for this script
+# Load remaining libraries AND DEFINE dp_aes
 suppressPackageStartupMessages({
   library(clusterProfiler)
   library(enrichplot)
   library(ggplot2)
   library(dplyr)
   library(forcats)
-  library(AnnotationDbi) # Needed for mapIds
-  # [수정] Ensure the correct organism DB package is loaded AND assigned
-  species_info <- config$databases[[config$species]]
-  organism_db_name <- species_info$organism_db # e.g., "org.Hs.eg.db"
+  library(AnnotationDbi)
 
-  # Load the library using the string name
-  if (!require(organism_db_name, character.only = TRUE)) {
-      stop(paste("Required organism DB package", organism_db_name, "is not installed."))
+  # --- Check and define organism_db AND kegg_organism ---
+  if (!"databases" %in% names(config) || !config$species %in% names(config$databases)) {
+      stop("[FATAL] 'databases' section or species entry missing in config.")
   }
-  # [핵심!] Convert the string name into the actual R object and assign it
+  species_info <- config$databases[[config$species]] # <-- species_info 정의
+
+  # Organism DB
+  if (!"organism_db" %in% names(species_info)){ # <-- species_info 사용
+      stop("[FATAL] 'organism_db' key missing under species entry in config.")
+  }
+  organism_db_name <- species_info$organism_db
+  cat(paste("[DEBUG] Organism DB name:", organism_db_name, "\n"))
+  if (!require(organism_db_name, character.only = TRUE)) {
+      stop(paste("[FATAL] Required organism DB package", organism_db_name, "is not installed."))
+  }
   organism_db <- get(organism_db_name)
+  cat("[DEBUG] organism_db object created successfully.\n")
+
+  # [수정] KEGG Organism Code - species_info 변수와 "kegg_code" 키 이름 확인
+  if (!"kegg_code" %in% names(species_info)){ # <-- species_info 사용, "kegg_code" 확인
+      stop("[FATAL] 'kegg_code' key missing under species entry in config.")
+  }
+  kegg_organism <- species_info$kegg_code # <-- species_info 사용
+  cat(paste("[DEBUG] KEGG organism code:", kegg_organism, "\n"))
+  if (is.null(kegg_organism) || kegg_organism == ""){
+      stop("[FATAL] kegg_organism code is empty or NULL.")
+  }
+
+  # --- Check and define dp_aes ---
+  if (!"plot_aesthetics" %in% names(config)) {
+      stop("[FATAL] 'plot_aesthetics' section missing in config.")
+  }
+  cat("[DEBUG] 'plot_aesthetics' section found in config.\n")
+
+  if (!"dotplot" %in% names(config$plot_aesthetics)) {
+      stop("[FATAL] 'dotplot' subsection missing under 'plot_aesthetics' in config.")
+  }
+  cat("[DEBUG] 'dotplot' subsection found under 'plot_aesthetics'.\n")
+
+  # Define dp_aes
+  dp_aes <- config$plot_aesthetics$dotplot
+
+  # Final check if dp_aes was assigned
+  if (is.null(dp_aes)) {
+       stop("[FATAL] dp_aes is NULL after assignment!")
+  }
+  cat("[DEBUG] dp_aes object created successfully. Contains:\n")
+  print(dp_aes) # Print the content of dp_aes
 
 })
 
-# --- 2. DE 분석 결과 로드 ---
+# --- [수정] 2. DE 분석 결과 로드 ---
+# 이 부분이 Setup 블록 다음, for 반복문 이전에 와야 합니다!
+cat("[INFO] Loading DE analysis results...\n")
 res_path <- file.path(output_path, "final_de_results.csv")
+if (!file.exists(res_path)) {
+    stop(paste("[FATAL] DE results file not found at:", res_path))
+}
 res <- read.csv(res_path, row.names = 1)
+cat("[INFO] DE analysis results loaded successfully.\n")
 
 # --- 3. 유전자 목록 및 Ontology 조합에 따른 반복 분석 ---
 cat("Starting enrichment analysis based on config settings...\n")
@@ -80,26 +143,26 @@ for (gene_set in config$enrichment$gene_lists) {
                            pAdjustMethod = "BH", pvalueCutoff = config$enrichment$pvalue_cutoff,
                            qvalueCutoff = config$enrichment$qvalue_cutoff)
     
-    if (!is.null(go_results) && nrow(go_results) > 0) {
-      
-      plot_df <- as.data.frame(go_results)
-      
-      # Define x_var and check if it exists in plot_df
-      x_var <- dp_aes$x_axis_variable
-      if (! x_var %in% colnames(plot_df)) {
-        message(sprintf("Warning: x_axis_variable '%s' not found in plot_df columns. Available columns: %s", x_var, paste(colnames(plot_df), collapse = ", ")))
-      }
+    # Check if results are not empty before proceeding to plotting
+      if (!is.null(go_results) && nrow(go_results) > 0) {
+
+        # --- [NEW DEBUGGING STEP] ---
+        cat("[DEBUG] Inside GO results block. Checking for dp_aes...\n")
+        if (!exists("dp_aes")) {
+            stop("[FATAL] dp_aes object does NOT exist right before plotting!")
+        } else {
+            cat("[DEBUG] dp_aes object FOUND right before plotting. Content:\n")
+            print(dp_aes)
+        }
       
       # [수정] dplyr 파이프라인으로 데이터 가공을 하나로 합칩니다.
       plot_df <- as.data.frame(go_results) %>%
-        # 1. GeneRatio를 숫자로 변환
         mutate(GeneRatio = sapply(GeneRatio, function(x) eval(parse(text=x)))) %>%
-        # 2. p.adjust 기준으로 정렬
         arrange(p.adjust) %>%
-        # 3. 상위 N개 선택
-        head(dp_aes$show_n_categories) %>%
-        # 4. y축 정렬
-        mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]]))
+        head(dp_aes$show_n_categories) %>% # <--- First use
+        mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]])) # <--- Second use
+
+      x_var <- dp_aes$x_axis_variable # <--- Third use
       
       # Ensure numeric and handle p.adjust == 0
       eps <- 1e-300
@@ -137,20 +200,24 @@ for (gene_set in config$enrichment$gene_lists) {
   kegg_results <- enrichKEGG(gene = entrez_ids, organism = kegg_organism, pvalueCutoff = config$enrichment$pvalue_cutoff)
   
   if (!is.null(kegg_results) && nrow(kegg_results) > 0) {
-    
-    # Define x_var_kegg and check if it exists in plot_df_kegg
-    x_var_kegg <- dp_aes$x_axis_variable
-    plot_df_kegg <- as.data.frame(kegg_results)
-    if (! x_var_kegg %in% colnames(plot_df_kegg)) {
-      message(sprintf("Warning: x_axis_variable '%s' not found in plot_df_kegg columns. Available columns: %s", x_var_kegg, paste(colnames(plot_df_kegg), collapse = ", ")))
-    }
+
+      # --- [NEW DEBUGGING STEP] ---
+      cat("[DEBUG] Inside KEGG results block. Checking for dp_aes...\n")
+      if (!exists("dp_aes")) {
+           stop("[FATAL] dp_aes object does NOT exist right before plotting!")
+      } else {
+           cat("[DEBUG] dp_aes object FOUND right before plotting. Content:\n")
+           print(dp_aes)
+      }
     
     # [수정] KEGG 부분도 동일하게 dplyr 파이프라인으로 개선합니다.
     plot_df_kegg <- as.data.frame(kegg_results) %>%
-      mutate(GeneRatio = sapply(GeneRatio, function(x) eval(parse(text=x)))) %>%
-      arrange(p.adjust) %>%
-      head(dp_aes$show_n_categories) %>%
-      mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]]))
+        mutate(GeneRatio = sapply(GeneRatio, function(x) eval(parse(text=x)))) %>%
+        arrange(p.adjust) %>%
+        head(dp_aes$show_n_categories) %>% # <--- Use
+        mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]])) # <--- Use
+
+      x_var_kegg <- dp_aes$x_axis_variable # <--- Use
     
     # Ensure numeric and handle p.adjust == 0
     eps <- 1e-300
@@ -181,8 +248,6 @@ for (gene_set in config$enrichment$gene_lists) {
   # 결과 파일 저장은 그대로 유지
   out_csv_kegg <- paste0("kegg_enrichment_", gene_set, ".csv")
   write.csv(as.data.frame(kegg_results), file.path(output_path, out_csv_kegg))
+  
 }
-
-
 cat("\nEnrichment analysis pipeline finished successfully! 🚀\n")
-

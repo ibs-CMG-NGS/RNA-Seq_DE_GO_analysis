@@ -1,4 +1,4 @@
-# Snakemake Workflow for RNA-Seq DE & GO Analysis
+# Snakemake Workflow for Multi-Group DE & GO Analysis
 
 import yaml
 from pathlib import Path
@@ -6,170 +6,153 @@ from pathlib import Path
 # --- 1. Load Configuration ---
 configfile: "config.yml"
 
-# Output directory from config.yml (should be fixed, e.g., "results")
+# 고정된 출력 디렉토리 (예: "results" 또는 "output")
 OUTPUT_DIR = Path(config["output_dir"])
+# R 분석 환경 이름
+R_ENV_NAME = "rna-seq-de-go-analysis" 
 
-# R analysis conda environment name (from environment.yml)
-R_ENV_NAME = "rna-seq-de-go-analysis" # environment.yml의 name과 일치해야 함
+# --- 2. Helper Function: Get all comparison pair strings ---
+# config.yml에서 ["TreatA", "Control"] 쌍을 읽어 "TreatA_vs_Control" 문자열 리스트로 변환
+def get_pairs(config):
+    pairs = []
+    if "pairwise_comparisons" in config["de_analysis"]:
+        for pair_list in config["de_analysis"]["pairwise_comparisons"]:
+            compare, base = pair_list
+            pairs.append(f"{compare}_vs_{base}")
+    return pairs
 
-# --- 2. Helper Function: Define Final Output Files ---
-# Dynamically generates the list of all expected final output files
-def get_final_outputs(config, output_dir):
-    files = []
-    output_dir = Path(output_dir) # Ensure Path object
+PAIRS = get_pairs(config) # 예: ["treated_vs_control"]
 
-    # 1. DE analysis results
-    files.append(str(output_dir / "final_de_results.csv"))
-    files.append(str(output_dir / "config_used.yml"))
-    if config.get("export", {}).get("export_to_excel", False):
-        files.append(str(output_dir / "final_de_results.xlsx"))
-
-    # 2. Basic plots
-    files.append(str(output_dir / "pca_plot.png"))
-    files.append(str(output_dir / "volcano_plot.png"))
-
-    # 3. Enrichment analysis results (DotPlots are representative)
-    gene_sets = config.get("enrichment", {}).get("gene_lists", [])
-    ontologies = config.get("enrichment", {}).get("go_ontologies", [])
-
-    for gs in gene_sets:
-        files.append(str(output_dir / f"kegg_dotplot_{gs}.png"))
-        for ont in ontologies:
-            # Check if ontology results are expected based on namespaces in go_barplot
-            if ont in config.get("go_barplot", {}).get("namespaces", []):
-                 files.append(str(output_dir / f"go_dotplot_{gs}_{ont}.png"))
-
-
-    # 4. GO Barplot results
-    for gs in gene_sets:
-         # Check if barplots are expected based on namespaces
-         if config.get("go_barplot", {}).get("namespaces", []):
-              files.append(str(output_dir / f"go_barplot_{gs}.png"))
-
-    return files
-
-# --- 3. Target Rule: Define final desired output ---
-# [CORRECTED] Depend on the flag files from the final rules
+# --- 3. Target Rule: Define all final outputs ---
 rule all:
     input:
-        # Core results from rule run_de_analysis
-        OUTPUT_DIR / "final_de_results.csv",
-        OUTPUT_DIR / "config_used.yml",
-        # Core plots from rule generate_plots
-        OUTPUT_DIR / "pca_plot.png",
-        OUTPUT_DIR / "volcano_plot.png",
-        # Flag file indicating enrichment analysis completion (includes dotplots)
-        OUTPUT_DIR / ".enrichment_done.flag",
-        # Flag file indicating go barplot completion
-        OUTPUT_DIR / ".go_barplots_done.flag"
+        # 1a. Omnibus test result (if requested)
+        expand(OUTPUT_DIR / "omnibus_test_results.csv", allow_missing=True) if config["de_analysis"]["run_omnibus_test"] else [],
+        
+        # 1b. Global PCA Plot (runs once)
+        OUTPUT_DIR / "global_pca_plot.png",
+
+        # 2. All Pairwise results
+        # 각 1:1 비교 쌍에 대해 DE 분석, Volcano, Enrichment, Bar plot이 모두 생성되어야 함
+        expand(OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv", pair=PAIRS),
+        expand(OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png", pair=PAIRS),
+        expand(OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag", pair=PAIRS), # 03번 스크립트 완료 플래그
+        expand(OUTPUT_DIR / "pairwise/{pair}/.go_barplots_done.flag", pair=PAIRS), # 04번 스크립트 완료 플래그
 
 # --- 4. Analysis Rules ---
 
-# Rule 1: Run Differential Expression Analysis
-rule run_de_analysis:
+# [신규] Rule 1a: Run Omnibus Test (전체 그룹 비교)
+rule run_omnibus_test:
     input:
-        script = "src/analysis/01_run_de_analysis.R",
+        script = "src/analysis/01a_run_omnibus_test.R", # ★ 신규 스크립트
         config_file = "config.yml",
-        # Explicitly mention input data files for dependency tracking
         counts = config["count_data_path"],
         meta = config["metadata_path"]
     output:
-        csv = OUTPUT_DIR / "final_de_results.csv",
-        config_copy = OUTPUT_DIR / "config_used.yml"
-    params:
-        config_path = "config.yml" # Argument for R script
+        csv = OUTPUT_DIR / "omnibus_test_results.csv"
     log:
-        OUTPUT_DIR / "logs/01_run_de_analysis.log"
-    conda:
-        R_ENV_NAME # Specify the R analysis environment
-    shell:
-        "Rscript {input.script} {params.config_path} > {log} 2>&1"
-
-# Rule 2: Generate Basic Plots (PCA, Volcano)
-rule generate_plots:
-    input:
-        script = "src/analysis/02_generate_plots.R",
-        config_file = "config.yml",
-        de_results = OUTPUT_DIR / "final_de_results.csv",
-        # Also depends on raw data for PCA re-calculation if needed
-        counts = config["count_data_path"],
-        meta = config["metadata_path"]
-    output:
-        pca = OUTPUT_DIR / "pca_plot.png",
-        volcano = OUTPUT_DIR / "volcano_plot.png"
-    params:
-        config_path = "config.yml"
-    log:
-        OUTPUT_DIR / "logs/02_generate_plots.log"
+        OUTPUT_DIR / "logs/01a_run_omnibus_test.log"
     conda:
         R_ENV_NAME
     shell:
-        "Rscript {input.script} {params.config_path} > {log} 2>&1"
+        "Rscript {input.script} {input.config_file} {output.csv} > {log} 2>&1"
 
+# [신규] Rule 1b: Run Pairwise DE (각 1:1 비교)
+rule run_pairwise_de:
+    input:
+        script = "src/analysis/01b_run_pairwise_de.R", # ★ 신규 스크립트
+        config_file = "config.yml",
+        counts = config["count_data_path"],
+        meta = config["metadata_path"]
+    output:
+        # 각 비교 쌍을 위한 하위 폴더 및 결과 파일
+        out_dir = directory(OUTPUT_DIR / "pairwise/{pair}"),
+        csv = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv",
+        config_copy = OUTPUT_DIR / "pairwise/{pair}/config_used.yml"
+    params:
+        compare = "{pair.split('_vs_')[0]}", # 와일드카드에서 'treated' 추출
+        base = "{pair.split('_vs_')[1]}"     # 와일드카드에서 'control' 추출
+    log:
+        OUTPUT_DIR / "logs/01b_run_pairwise_de_{pair}.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        # R 스크립트에 config 경로, 비교군, 기준군, 출력 폴더를 인자로 전달
+        "Rscript {input.script} {input.config_file} {params.compare} {params.base} {output.out_dir} > {log} 2>&1"
+
+# [수정] Rule 2a: Generate Global PCA Plot (전체 샘플 1회 실행)
+rule generate_global_pca:
+    input:
+        script = "src/analysis/02_generate_plots.R", # 기존 스크립트 재활용
+        config_file = "config.yml",
+        counts = config["count_data_path"],
+        meta = config["metadata_path"]
+    output:
+        pca = OUTPUT_DIR / "global_pca_plot.png"
+    log:
+        OUTPUT_DIR / "logs/02_generate_global_pca.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        # R 스크립트에 "pca" 작업만 수행하도록 인자 전달
+        "Rscript {input.script} {input.config_file} --task pca --output_file {output.pca} > {log} 2>&1"
+
+# [수정] Rule 2b: Generate Pairwise Volcano Plot (각 1:1 비교)
+rule generate_pairwise_volcano:
+    input:
+        script = "src/analysis/02_generate_plots.R", # 기존 스크립트 재활용
+        config_file = "config.yml",
+        de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
+    output:
+        volcano = OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png"
+    params:
+        out_file = OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png"
+    log:
+        OUTPUT_DIR / "logs/02_generate_volcano_{pair}.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        # R 스크립트에 "volcano" 작업만 수행하도록 인자 전달
+        "Rscript {input.script} {input.config_file} --task volcano --input_file {input.de_results} --output_file {output.volcano} > {log} 2>&1"
+
+# [수정] Rule 3: Run Pairwise Enrichment (각 1:1 비교)
 rule enrichment_analysis:
     input:
         script = "src/analysis/03_enrichment_analysis.R",
         config_file = "config.yml",
-        de_results = OUTPUT_DIR / "final_de_results.csv"
+        de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
-        # [수정] 이 규칙이 생성하는 모든 종류의 파일을 명시적으로 선언합니다.
-        # GO 결과 (CSV + Plot)
-        go_csvs = expand(
-            OUTPUT_DIR / "go_enrichment_{geneset}_{ontology}.csv",
-            geneset=config.get("enrichment", {}).get("gene_lists", []),
-            ontology=config.get("enrichment", {}).get("go_ontologies", [])
-        ),
-        go_plots = expand(
-            OUTPUT_DIR / "go_dotplot_{geneset}_{ontology}.png",
-            geneset=config.get("enrichment", {}).get("gene_lists", []),
-            ontology=config.get("enrichment", {}).get("go_ontologies", [])
-        ),
-        # KEGG 결과 (CSV + Plot)
-        kegg_csvs = expand(
-            OUTPUT_DIR / "kegg_enrichment_{geneset}.csv",
-            geneset=config.get("enrichment", {}).get("gene_lists", [])
-        ),
-        kegg_plots = expand(
-            OUTPUT_DIR / "kegg_dotplot_{geneset}.png",
-            geneset=config.get("enrichment", {}).get("gene_lists", [])
-        ),
-        # 완료 플래그 파일 (선택적이지만 유지 가능)
-        flag = touch(OUTPUT_DIR / ".enrichment_done.flag")
+        flag = touch(OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag")
     params:
-        config_path = "config.yml"
+        input_csv = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv",
+        output_dir = OUTPUT_DIR / "pairwise/{pair}"
     log:
-        OUTPUT_DIR / "logs/03_enrichment_analysis.log"
+        OUTPUT_DIR / "logs/03_enrichment_{pair}.log"
     conda:
         R_ENV_NAME
     shell:
-        # 스크립트 실행 후 플래그 파일 생성
-        "Rscript {input.script} {params.config_path} > {log} 2>&1 && touch {output.flag}"
+        "Rscript {input.script} {input.config_file} {params.input_csv} {params.output_dir} > {log} 2>&1 && touch {output.flag}"
 
-# Rule 4: GO Barplot 생성 (04_generate_go_plots.R)
+# [수정] Rule 4: Generate Pairwise GO Barplots (각 1:1 비교)
 rule go_barplots:
     input:
         script = "src/analysis/04_generate_go_plots.R",
         config_file = "config.yml",
-        # [수정] 이제 enrichment_analysis 규칙의 output인 go_csvs를 직접 참조합니다.
-        go_csvs = rules.enrichment_analysis.output.go_csvs,
-        # enrichment_flag는 더 이상 필요하지 않습니다 (위 go_csvs가 의존성을 보장).
+        enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag",
+        # 03번 규칙에서 생성된 CSV들에 의존
+        go_csvs = expand(
+            OUTPUT_DIR / "pairwise/{pair}/go_enrichment_{geneset}_{ontology}.csv",
+            pair=r"{{pair}}", # {pair} 와일드카드는 상위 규칙에서 받음
+            geneset=config.get("enrichment", {}).get("gene_lists", []),
+            ontology=config.get("enrichment", {}).get("go_ontologies", [])
+        )
     output:
-        # [수정] 이 규칙이 생성하는 bar plot 파일들을 명시적으로 선언합니다.
-        barplots = expand(
-            OUTPUT_DIR / "go_barplot_{geneset}.png",
-            geneset=config.get("enrichment", {}).get("gene_lists", [])
-        ),
-        flag = touch(OUTPUT_DIR / ".go_barplots_done.flag") # 완료 플래그 유지
+        flag = touch(OUTPUT_DIR / "pairwise/{pair}/.go_barplots_done.flag")
     params:
-        config_path = "config.yml"
+        output_dir = OUTPUT_DIR / "pairwise/{pair}"
     log:
-        OUTPUT_DIR / "logs/04_generate_go_plots.log"
+        OUTPUT_DIR / "logs/04_go_barplots_{pair}.log"
     conda:
         R_ENV_NAME
     shell:
-        "Rscript {input.script} {params.config_path} > {log} 2>&1 && touch {output.flag}"
-
-# --- 5. Optional: Rule to clean results ---
-rule clean:
-    shell:
-        "rm -rf {OUTPUT_DIR}"
+        "Rscript {input.script} {input.config_file} {params.output_dir} > {log} 2>&1 && touch {output.flag}"

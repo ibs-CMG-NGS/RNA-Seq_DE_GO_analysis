@@ -21,8 +21,22 @@ output_csv_path <- args[2]
 
 # --- 3. Load Config and Data ---
 config <- yaml.load_file(config_path)
-counts <- read.csv(here(config$count_data_path), row.names = 1)
+counts <- read.csv(here(config$count_data_path), row.names = 1, check.names = FALSE)
 meta <- read.csv(here(config$metadata_path), row.names = 1)
+
+# Ensure sample names match between count data and metadata
+count_samples <- colnames(counts)
+meta_samples <- rownames(meta)
+
+if (!all(count_samples %in% meta_samples)) {
+  missing_in_meta <- count_samples[!count_samples %in% meta_samples]
+  stop(paste("Count data columns not found in metadata:", paste(missing_in_meta, collapse=", ")))
+}
+
+# Reorder metadata to match count data column order
+meta <- meta[count_samples, , drop = FALSE]
+
+cat(paste("Loaded", nrow(counts), "genes and", ncol(counts), "samples\n"))
 
 # 그룹 변수 factor로 변환
 group_var <- config$de_analysis$group_variable
@@ -38,7 +52,20 @@ cat(paste("Running Omnibus test using method:", dge_method, "\n"))
 if (dge_method == "DESeq2") {
   # DESeq2: Likelihood Ratio Test (LRT)
   # 'reduced' 모델은 그룹 변수만 제거한 모델입니다.
-  reduced_formula <- as.formula(gsub(paste0("\\+ *", group_var), "", as.character(design_formula)[2]))
+  # Convert design formula to string, remove group variable, then convert back to formula
+  design_str <- paste(as.character(design_formula)[2])  # Get right side of formula
+  reduced_str <- gsub(paste0("\\+?\\s*", group_var, "\\s*\\+?"), "", design_str)
+  reduced_str <- gsub("^\\s*\\+\\s*|\\s*\\+\\s*$", "", reduced_str)  # Clean up leading/trailing +
+  
+  # If reduced formula is empty, use intercept-only model
+  if (reduced_str == "" || grepl("^\\s*$", reduced_str)) {
+    reduced_formula <- as.formula("~ 1")
+  } else {
+    reduced_formula <- as.formula(paste("~", reduced_str))
+  }
+  
+  cat(paste("Full formula:", deparse(design_formula), "\n"))
+  cat(paste("Reduced formula:", deparse(reduced_formula), "\n"))
   
   dds <- DESeqDataSetFromMatrix(countData = counts, colData = meta, design = design_formula)
   dds <- DESeq(dds, test = "LRT", reduced = reduced_formula)

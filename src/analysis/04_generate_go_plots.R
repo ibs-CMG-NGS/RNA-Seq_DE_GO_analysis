@@ -49,10 +49,14 @@ for (gene_set in gene_sets_to_plot) {
     input_csv <- file.path(output_path, paste0("go_enrichment_", gene_set, "_", ont, ".csv"))
     
     if (file.exists(input_csv)) {
-      go_df <- read.csv(input_csv)
+      go_df <- read.csv(input_csv, stringsAsFactors = FALSE)
       if (nrow(go_df) > 0) { 
         if (!"ONTOLOGY" %in% names(go_df)) {
           go_df$ONTOLOGY <- ont
+        }
+        # Ensure geneID is character type for consistent binding
+        if ("geneID" %in% names(go_df)) {
+          go_df$geneID <- as.character(go_df$geneID)
         }
         all_go_results[[ont]] <- go_df
       }

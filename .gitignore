@@ -51,4 +51,8 @@ rsconnect/
 # Analysis output files (keep structure, ignore contents)
 output/*/
 !output/.gitkeep
-data/
+data/*/
+!data/.gitkeep
+
+# Snakemake files
+.snakemake/

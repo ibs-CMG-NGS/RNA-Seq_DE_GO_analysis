@@ -10,7 +10,7 @@ species: "mouse"
 # -------------------------
 count_data_path: "data/raw/H2O2/H2O2_raw_count.csv"
 metadata_path: "data/raw/H2O2/H2O2_metadata.csv"
-output_dir: "output"
+output_dir: "output/test"
 
 # -------------------------
 # Analysis Parameters
@@ -24,7 +24,6 @@ de_analysis:
 
   # 1. 디자인 공식: 메타데이터의 '그룹' 컬럼을 포함해야 합니다.
   #    예: "~ group" 또는 배치 효과가 있다면 "~ batch + group"
-  #    현재 airway 데이터의 그룹 컬럼 이름인 'dex'를 사용합니다.
   design_formula: "~ group"
   
   # 2. 그룹 변수: design_formula에 사용된 그룹 컬럼의 이름을 정확히 적어줍니다.
@@ -38,16 +37,36 @@ de_analysis:
   # 4. Pairwise Comparisons: 실행할 모든 1:1 비교를 [비교군, 기준군] 쌍으로 명시합니다.
   #    Snakemake가 이 목록을 기반으로 각 비교 작업을 생성합니다.
   pairwise_comparisons:
-    # 예시: 현재 airway 데이터 (control, treated)
     - ["Acute_1D", "Control"]
     - ["Acute_3D", "Control"]
-    - ["Chronic_100uM", "Control"]
-    - ["Chronic_200uM", "Control"]
+    # - ["Chronic_100uM", "Control"]
+    # - ["Chronic_200uM", "Control"]
+    # 예시: 그룹이 더 있다면 아래처럼 추가
+    # - ["Drug_High", "Control"]
+    # - ["Drug_Low", "Control"]
+    # - ["Drug_High", "Drug_Low"]
 
   # 유의성 기준 (Adjusted p-value)
   padj_cutoff: 0.05
   # Log2 Fold Change 절대값 기준
   log2fc_cutoff: 1.0
+
+  # 재현성 및 세부 조정을 위한 옵션
+  advanced_options:
+    # 1. Pre-filtering: 전체 샘플 합계가 이 값 미만인 유전자는 분석 전 제거 (0이면 미적용, 기본값: 10)
+    prefilter_threshold: 0 
+    
+    # 2. Pairwise 비교 시 정규화 방법 선택
+    # "subset": 각 비교마다 해당 두 그룹의 샘플만으로 정규화 (독립적, 더 보수적)
+    # "global": 전체 샘플을 사용하여 정규화한 후 pairwise 비교 (일관성 있는 정규화)
+    pairwise_normalization: "global"  # 또는 "global"
+    
+    # 3. PCA 변환 시 실험 디자인 고려 여부 (vst/rlog)
+    # TRUE: 디자인 무시 (Unsupervised), FALSE: 디자인 고려 (보통 FALSE가 그룹 간 차이를 더 잘 보여줌)
+    vst_blind: false
+    
+    # 4. PCA 계산에 사용할 상위 변동성 유전자 개수 (기본값: 500)
+    pca_ntop: 500
 
 # enrichment analysis 관련 설정
 enrichment:

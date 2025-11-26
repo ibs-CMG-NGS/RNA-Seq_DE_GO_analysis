@@ -19,8 +19,33 @@ output_dir: "output"
 de_analysis:
   # 사용할 DGE 분석 방법을 선택: "DESeq2", "edgeR", "limma-voom"
   method: "DESeq2"
-  # 메타데이터의 컬럼을 이용한 실험 디자인
-  design_formula: "~ dex"
+
+  # ★★★ 다중 비교를 위한 핵심 설정 ★★★
+
+  # 1. 디자인 공식: 메타데이터의 '그룹' 컬럼을 포함해야 합니다.
+  #    예: "~ group" 또는 배치 효과가 있다면 "~ batch + group"
+  design_formula: "~ group"
+  
+  # 2. 그룹 변수: design_formula에 사용된 그룹 컬럼의 이름을 정확히 적어줍니다.
+  group_variable: "group"
+
+  # 3. Omnibus Test: true로 설정 시, 모든 그룹 간에 차이가 있는지 1-way ANOVA-like test를 수행합니다.
+  #    (DESeq2/edgeR: LRT, limma: F-test)
+  #    이 결과는 '{output_dir}/omnibus_test_results.csv' 등으로 저장됩니다.
+  run_omnibus_test: true
+
+  # 4. Pairwise Comparisons: 실행할 모든 1:1 비교를 [비교군, 기준군] 쌍으로 명시합니다.
+  #    Snakemake가 이 목록을 기반으로 각 비교 작업을 생성합니다.
+  pairwise_comparisons:
+    - ["Acute_1D", "Control"]
+    - ["Acute_3D", "Control"]
+    - ["Chronic_100uM", "Control"]
+    - ["Chronic_200uM", "Control"]
+    # 예시: 그룹이 더 있다면 아래처럼 추가
+    # - ["Drug_High", "Control"]
+    # - ["Drug_Low", "Control"]
+    # - ["Drug_High", "Drug_Low"]
+
   # 유의성 기준 (Adjusted p-value)
   padj_cutoff: 0.05
   # Log2 Fold Change 절대값 기준

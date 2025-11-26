@@ -328,7 +328,75 @@ RNA-Seq_DE_GO_analysis/
  
 ---
 
-## 💡 주요 개념 (FAQ)
+## � Pairwise 비교 시 정규화 전략
+
+다중 그룹 실험에서 pairwise 비교를 수행할 때, 정규화 방법에 따라 결과가 달라질 수 있습니다. 이 파이프라인은 두 가지 정규화 전략을 지원하며, `config.yml`의 `advanced_options.pairwise_normalization` 설정으로 선택할 수 있습니다.
+
+### 1. **Subset Normalization** (`"subset"` - 기본값)
+
+**방법**: 각 pairwise 비교마다 해당 두 그룹의 샘플만으로 정규화를 수행합니다.
+
+**장점**:
+- ✅ **독립적인 비교**: 각 비교가 다른 그룹의 영향을 받지 않습니다
+- ✅ **보수적인 결과**: 더 엄격한 기준으로 차등 발현 유전자를 선별합니다
+- ✅ **명확한 해석**: 두 그룹 간의 순수한 차이만 반영됩니다
+
+**단점**:
+- ⚠️ **일관성 부족**: 비교마다 다른 정규화 기준이 적용되어 결과를 직접 비교하기 어렵습니다
+- ⚠️ **전체 맥락 손실**: 실험 전체의 생물학적 맥락이 반영되지 않습니다
+
+**추천 상황**:
+- 각 비교를 독립적으로 해석하고 싶을 때
+- 다른 그룹의 극단적인 발현 패턴이 특정 비교에 영향을 주는 것을 피하고 싶을 때
+- 보수적인 DEG 선별이 중요할 때
+
+### 2. **Global Normalization** (`"global"`)
+
+**방법**: 전체 샘플을 사용하여 size factors/normalization factors를 계산한 후, pairwise 비교 시에도 이 값을 유지합니다.
+
+**장점**:
+- ✅ **일관된 정규화**: 모든 비교에서 동일한 정규화 기준이 적용됩니다
+- ✅ **전체 맥락 유지**: 실험 전체의 생물학적 맥락이 반영됩니다
+- ✅ **비교 가능성**: 서로 다른 pairwise 비교 결과를 직접 비교할 수 있습니다
+- ✅ **통계적 안정성**: 더 많은 샘플을 사용하여 정규화 계수를 추정하므로 더 안정적입니다
+
+**단점**:
+- ⚠️ **다른 그룹의 영향**: 비교에 포함되지 않은 그룹의 발현 패턴도 정규화에 영향을 줍니다
+- ⚠️ **민감도 증가**: Subset 방식보다 더 많은 DEG를 검출할 수 있어, 위양성 가능성이 약간 높아질 수 있습니다
+
+**추천 상황**:
+- 여러 pairwise 비교 결과를 종합적으로 분석하고 싶을 때
+- 시계열 실험이나 용량 반응 실험처럼 전체 실험 맥락이 중요할 때
+- 샘플 수가 적어서 정규화 계수 추정의 안정성이 중요할 때
+
+### 설정 방법
+
+`config.yml` 파일의 `advanced_options` 섹션에서 설정합니다:
+
+```yaml
+de_analysis:
+  advanced_options:
+    # Pairwise 비교 시 정규화 방법 선택
+    pairwise_normalization: "subset"  # 또는 "global"
+```
+
+### 실제 적용 예시
+
+**시나리오**: Control, Low dose, High dose 세 그룹이 있고, "Low vs Control"과 "High vs Control" 두 가지 비교를 수행한다고 가정합니다.
+
+- **Subset 방식**: 
+  - "Low vs Control" 비교 시: Low와 Control 샘플만으로 정규화
+  - "High vs Control" 비교 시: High와 Control 샘플만으로 정규화
+  - → 각 비교의 normalized count 값이 서로 다른 기준으로 계산됨
+
+- **Global 방식**: 
+  - Control, Low, High 모든 샘플을 사용하여 정규화
+  - "Low vs Control", "High vs Control" 모두 동일한 normalized count 값 사용
+  - → 두 비교 결과를 직접 비교 가능 (예: "Low에서는 유의하지 않지만 High에서는 유의한 유전자" 식별 가능)
+
+---
+
+## �💡 주요 개념 (FAQ)
 
 ### DE 분석 및 데이터 관련
 - Normalized Counts와 FPKM의 차이점은 무엇인가요?

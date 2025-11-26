@@ -42,8 +42,20 @@ if (opt$task == "pca") {
   cat(paste("\nGenerating Global PCA plot...\n"))
   
   # Load data
-  count_data <- read.csv(here(config$count_data_path), row.names = 1)
+  count_data <- read.csv(here(config$count_data_path), row.names = 1, check.names = FALSE)
   meta_data <- read.csv(here(config$metadata_path), row.names = 1)
+  
+  # Ensure sample names match between count data and metadata
+  count_samples <- colnames(count_data)
+  meta_samples <- rownames(meta_data)
+  
+  if (!all(count_samples %in% meta_samples)) {
+    missing_in_meta <- count_samples[!count_samples %in% meta_samples]
+    stop(paste("Count data columns not found in metadata:", paste(missing_in_meta, collapse=", ")))
+  }
+  
+  # Reorder metadata to match count data column order
+  meta_data <- meta_data[count_samples, , drop = FALSE]
   
   # PCA 플롯의 점 색상을 결정할 그룹 변수 (config에서 읽어옴)
   intgroup <- config$de_analysis$group_variable
@@ -51,6 +63,11 @@ if (opt$task == "pca") {
     stop(paste("PCA intgroup '", intgroup, "' not found in metadata columns."))
   }
   
+  # Config에서 고급 옵션 로드 (기본값 설정)
+  adv_opts <- config$de_analysis$advanced_options
+  blind_mode <- if(!is.null(adv_opts$vst_blind)) adv_opts$vst_blind else TRUE
+  pca_ntop <- if(!is.null(adv_opts$pca_ntop)) adv_opts$pca_ntop else 500
+
   dge_method <- config$de_analysis$method
   
   if (dge_method == "DESeq2") {
@@ -59,8 +76,8 @@ if (opt$task == "pca") {
       source(here("src", "utils", "load_data.R"))
     })
     dds <- create_de_object(config_path = opt$config)
-    vst_data <- vst(dds, blind = FALSE)
-    pca_data <- plotPCA(vst_data, intgroup = intgroup, returnData = TRUE)
+    vst_data <- vst(dds, blind = blind_mode)
+    pca_data <- plotPCA(vst_data, intgroup = intgroup, returnData = TRUE, ntop = pca_ntop)
     percentVar <- round(100 * attr(pca_data, "percentVar"))
 
   } else if (dge_method %in% c("edgeR", "limma-voom")) {

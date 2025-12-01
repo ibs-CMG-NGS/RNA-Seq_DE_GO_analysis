@@ -502,30 +502,30 @@ de_analysis:
 
 ---
 
-## �💡 주요 개념 (FAQ)
+## 💡 주요 개념 (FAQ)
 
 ### DE 분석 및 데이터 관련
-- Normalized Counts와 FPKM의 차이점은 무엇인가요?
-    -둘 다 시퀀싱 깊이를 보정하지만, FPKM은 유전자 길이까지 추가로 보정합니다. DE 분석은 동일 유전자를 샘플 간에 비교하는 것이므로, 변하지 않는 �[...]
+- **Normalized Counts와 FPKM의 차이점은 무엇인가요?**
+    - 둘 다 시퀀싱 깊이를 보정하지만, FPKM은 유전자 길이까지 추가로 보정합니다. DE 분석은 동일 유전자를 샘플 간에 비교하는 것이므로, 변하지 않는 유전자 길이를 굳이 보정할 필요가 없습니다. 따라서 DESeq2, edgeR 등은 유전자 길이 보정 없이 라이브러리 크기(시퀀싱 깊이)만 보정한 normalized counts를 사용합니다.
  
-- Ensembl ID는 있는데 왜 유전자 심볼(Gene Symbol)은 비어있나요?
-    - 오류가 아니며, 주로 생물학적인 이유 때문입니다. Non-coding Genes (단백질 미생성 유전자), 아직 기능이 밝혀지지 않은 Novel Genes (신규 유전자) 등은 �[...]
+- **Ensembl ID는 있는데 왜 유전자 심볼(Gene Symbol)은 비어있나요?**
+    - 오류가 아니며, 주로 생물학적인 이유 때문입니다. Non-coding Genes (단백질 미생성 유전자), 아직 기능이 밝혀지지 않은 Novel Genes (신규 유전자) 등은 공식적인 Gene Symbol이 없을 수 있습니다. 이런 경우 Ensembl ID만 존재하며, 추후 연구가 진행되면 심볼이 부여됩니다.
 
 ### 기능 농축 분석 (Enrichment Analysis) 관련
-- pvalue_cutoff와 qvalue_cutoff는 무엇인가요?
-    - P-value Cutoff는 "이 GO Term이 농축된 것이 우연일 확률"에 대한 느슨한 1차 필터입니다. (pvalue_cutoff: 0.05 -> 우연일 확률이 5% 미만인 후보들을 일단 선별[...]
-    - Q-value Cutoff는 수천 개의 GO Term을 동시에 검정할 때 발생하는 통계적 오류(위양성)를 보정한 엄격한 최종 필터입니다. "유의미하다고 선언한 결과 ��[...]
+- **pvalue_cutoff와 qvalue_cutoff는 무엇인가요?**
+    - **P-value Cutoff**: "이 GO Term이 농축된 것이 우연일 확률"에 대한 느슨한 1차 필터입니다. (pvalue_cutoff: 0.05 → 우연일 확률이 5% 미만인 후보들을 일단 선별)
+    - **Q-value Cutoff**: 수천 개의 GO Term을 동시에 검정할 때 발생하는 통계적 오류(위양성)를 보정한 엄격한 최종 필터입니다. "유의미하다고 선언한 결과 중 실제로 틀릴 확률"을 제어합니다. (qvalue_cutoff: 0.2 → 선언된 결과 중 최대 20%가 위양성일 수 있음을 허용)
  
-- Dot plot의 Count와 GeneRatio는 무엇을 의미하나요?
-    - Count (점의 크기): 분석에 사용한 내 유전자 목록 중, 특정 GO Term에 포함되는 유전자의 개수입니다. 점이 클수록 더 많은 유전자가 그 기능에 관여한[...]
-    - GeneRatio (x축 위치): Count를 분석에 사용한 전체 유전자 개수로 나눈 값(비율)입니다. 이 값이 높을수록(오른쪽), 해당 기능이 내 유전자 목록 전체에�[...]
+- **Dot plot의 Count와 GeneRatio는 무엇을 의미하나요?**
+    - **Count (점의 크기)**: 분석에 사용한 내 유전자 목록 중, 특정 GO Term에 포함되는 유전자의 개수입니다. 점이 클수록 더 많은 유전자가 그 기능에 관여합니다.
+    - **GeneRatio (x축 위치)**: Count를 분석에 사용한 전체 유전자 개수로 나눈 값(비율)입니다. 이 값이 높을수록(오른쪽), 해당 기능이 내 유전자 목록 전체에서 차지하는 비중이 큽니다.
  
-- GeneRatio와 Enrichment Score는 비슷한 개념인가요?
+- **GeneRatio와 Enrichment Score는 비슷한 개념인가요?**
     - 아닙니다, 두 개념은 다른 분석 방식에서 나옵니다.
-    - GeneRatio: 우리가 사용하는 ORA(Over-Representation Analysis) 방식의 결과로, 미리 선별된 유의미한 유전자 목록 내에서의 비율을 나타냅니다.
-    - Enrichment Score: GSEA(Gene Set Enrichment Analysis) 방식의 결과로, 전체 유전자의 발현 순위 안에서 특정 유전자 그룹의 방향성 있는 쏠림 현상을 측정하는 ��[...]
+    - **GeneRatio**: 우리가 사용하는 ORA(Over-Representation Analysis) 방식의 결과로, 미리 선별된 유의미한 유전자 목록 내에서의 비율을 나타냅니다.
+    - **Enrichment Score**: GSEA(Gene Set Enrichment Analysis) 방식의 결과로, 전체 유전자의 발현 순위 안에서 특정 유전자 그룹의 방향성 있는 쏠림 현상을 측정하는 지표입니다. 이 파이프라인에서는 ORA 방식을 사용하므로 Enrichment Score는 계산되지 않습니다.
  
-- GeneRatio도 Cutoff 기준이 있나요?
-    - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 [...]
+- **GeneRatio도 Cutoff 기준이 있나요?**
+    - 아니요, 없습니다. GeneRatio는 P-value처럼 통계적 유의성을 판단하는 기준이 아니라, 영향력의 크기를 나타내는 척도입니다. 먼저 padj < 0.05 기준으로 유의미한 GO Term을 선별한 후, GeneRatio를 참고하여 "얼마나 많은 유전자가 관여하는지" 해석에 활용합니다.
 
 

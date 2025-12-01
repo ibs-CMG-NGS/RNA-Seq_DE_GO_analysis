@@ -108,8 +108,65 @@ snakemake --cores 4 --use-conda clean
 ```
 Snakemake는 `Snakefile`에 정의된 규칙에 따라 `config.yml`을 읽고, 각 R 스크립트를 실행할 때 자동으로 `rna-seq-de-go-analysis` 환경을 활성화하여 분석을 수행합니다. 결과는 `config.yml`의 `output_dir`에 지정된 폴더에 저장됩니다.
 
+#### � 논문용 GO Summary Table 자동 생성
+
+파이프라인을 실행하면 각 pairwise 비교마다 **`GO_enrichment_summary.xlsx`** 파일이 자동으로 생성됩니다. 이 파일은:
+- ✅ 모든 GO enrichment 결과를 하나의 Excel 파일로 통합
+- ✅ Gene set별 (UP/DOWN/TOTAL), Ontology별 (BP/CC/MF) 워크시트 자동 구성
+- ✅ 상위 유의한 GO term 요약 시트 포함
+- ✅ 분석 파라미터 메타데이터 자동 기록
+- ✅ 전문적인 서식 (색상 테마, 열 너비, freeze pane) 적용
+- ✅ 논문 supplementary material로 바로 제출 가능
+- ✅ 개별 연구자에게 전달하기 편리
+
+**출력 위치**: `output/{비교이름}/pairwise/{비교군}_vs_{기준군}/GO_enrichment_summary.xlsx`
+
+**예시**: `output/H2O2_Neuron/pairwise/H2O2_vs_Control/GO_enrichment_summary.xlsx`
+
+#### � Config 파일 변경하기
+
+다른 데이터셋을 분석하거나 설정을 변경하려면 **`Snakefile`의 6번째 줄**만 수정하면 됩니다:
+
+```python
+# Snakefile 상단 (6번째 줄)
+CONFIG_FILE = "config_H2O2_Neuron.yml"  # ← 여기만 변경!
+```
+
+예시:
+```python
+# 다른 프로젝트 분석 시
+CONFIG_FILE = "config_Shank2.yml"
+
+# 파라미터 테스트 시
+CONFIG_FILE = "config_test_prefilter10.yml"
+```
+
+**장점**:
+- ✅ 한 곳에서만 수정 → 실수 방지
+- ✅ 모든 규칙(rule)에 자동 반영
+- ✅ 이전 방식처럼 여러 곳을 수정할 필요 없음
+
+**이전 방식 (번거로움)**:
+```python
+# 예전에는 각 rule마다 일일이 수정해야 했음
+config_file = "config_H2O2_Neuron.yml"  # Rule 1
+config_file = "config_H2O2_Neuron.yml"  # Rule 2
+config_file = "config_H2O2_Neuron.yml"  # Rule 3
+# ... (총 7군데 수정 필요)
+```
+
 #### 💡 Snakemake 활용 예시: 여러 조건 실행
-만약 여러 데이터셋이나 파라미터 조합으로 분석을 반복하고 싶다면, `config.yml` 파일을 여러 개 만들고(`config_A.yml`, `config_B.yml`) Snakemake 실행 시 --configfile 옵션으로 지정하면 됩니다.
+여러 config 파일로 순차적으로 분석하려면:
+
+```bash
+# 방법 1: CONFIG_FILE 변수만 변경하고 실행 (권장)
+# Snakefile 6번째 줄을 수정하고
+snakemake --cores 4 --use-conda
+
+# 방법 2: 명령줄에서 config 파일 지정 (고급 사용자)
+snakemake --cores 4 --use-conda --configfile config_A.yml
+snakemake --cores 4 --use-conda --configfile config_B.yml
+```
 
 ### 📓 방법 2: Jupyter Notebook으로 실행하기
 이 방법은 각 분석 단계를 직접 실행하고 중간 결과를 확인하는 데 유용합니다.
@@ -298,6 +355,19 @@ export:
 -   **출력** 
     - `go_barplot_{up|down|total}.png`: 3x1의 세로 레이아웃을 갖는 bar plot. 위에서부터 아래로 `BP`, `CC`, `MF` 순으로 정렬 
 
+## `05_generate_go_table.R` ✨ 
+
+-   **목적** GO enrichment 분석 결과를 논문 supplementary material 형식의 통합 Excel 파일로 생성. 개별 연구자 전달 및 논문 제출용으로 최적화된 형식.
+-   **입력** 모든 `go_enrichment_{up|down|total}_{BP|CC|MF}.csv` 파일
+-   **출력** 
+    - `GO_enrichment_summary.xlsx`: 다중 워크시트로 구성된 Excel 파일
+      - **All_Results**: 모든 GO 결과 통합
+      - **UP_regulated**, **DOWN_regulated**, **TOTAL_regulated**: Gene set별 결과
+      - **Biological_Process**, **Cellular_Component**, **Molecular_Function**: Ontology별 결과
+      - **Top_Terms**: 각 카테고리의 상위 20개 가장 유의한 GO term
+      - **Analysis_Info**: 분석 파라미터 및 메타데이터
+    - 전문적인 서식 적용 (헤더 스타일, 자동 열 너비, freeze pane 등)
+
 ---
 
 ## 📁 폴더 구조
@@ -318,8 +388,9 @@ RNA-Seq_DE_GO_analysis/
 │   ├── analysis/                   # 핵심 분석 단계별 스크립트
 │   │   ├── 01_run_de_analysis.R
 │   │   ├── 02_generate_plots.R
-│   │   │── 03_enrichment_analysis.R
-│   │   └── 04_generate_go_plots.R
+│   │   ├── 03_enrichment_analysis.R
+│   │   ├── 04_generate_go_plots.R
+│   │   └── 05_generate_go_table.R     # ✨ 논문용 GO 통합 Excel 생성
 │   └── utils/                      # 유틸리티 스크립트
 │        └── load_data.R
 ├── Snakefile                   # ★ (권장) Snakemake 파이프라인 정의

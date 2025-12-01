@@ -2,7 +2,10 @@ import yaml
 from pathlib import Path
 
 # --- 1. Load Configuration ---
-configfile: "config_H2O2_Neuron.yml"
+# ★ Config 파일 경로 (여기서만 수정하면 전체 파이프라인에 적용됨)
+CONFIG_FILE = "config_H2O2_Neuron.yml"
+
+configfile: CONFIG_FILE
 
 OUTPUT_DIR = Path(config["output_dir"])
 R_ENV_NAME = "rna-seq-de-go-analysis" 
@@ -33,7 +36,9 @@ rule all:
         # Enrichment 완료 플래그 (CSV, Dotplot 포함)
         expand(OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag", pair=PAIRS),
         # Barplot 완료 플래그
-        expand(OUTPUT_DIR / "pairwise/{pair}/.go_barplots_done.flag", pair=PAIRS)
+        expand(OUTPUT_DIR / "pairwise/{pair}/.go_barplots_done.flag", pair=PAIRS),
+        # GO Summary Table (논문용 통합 Excel 파일)
+        expand(OUTPUT_DIR / "pairwise/{pair}/GO_enrichment_summary.xlsx", pair=PAIRS)
 
 # --- 4. Analysis Rules ---
 
@@ -41,7 +46,7 @@ rule all:
 rule run_omnibus_test:
     input:
         script = "src/analysis/01a_run_omnibus_test.R",
-        config_file = "config_H2O2_Neuron.yml",
+        config_file = CONFIG_FILE,
         counts = config["count_data_path"],
         meta = config["metadata_path"]
     output:
@@ -57,7 +62,7 @@ rule run_omnibus_test:
 rule run_pairwise_de:
     input:
         script = "src/analysis/01b_run_pairwise_de.R",
-        config_file = "config_H2O2_Neuron.yml",
+        config_file = CONFIG_FILE,
         counts = config["count_data_path"],
         meta = config["metadata_path"]
     output:
@@ -78,7 +83,7 @@ rule run_pairwise_de:
 rule generate_global_pca:
     input:
         script = "src/analysis/02_generate_plots.R",
-        config_file = "config_H2O2_Neuron.yml",
+        config_file = CONFIG_FILE,
         counts = config["count_data_path"],
         meta = config["metadata_path"]
     output:
@@ -94,7 +99,7 @@ rule generate_global_pca:
 rule generate_pairwise_volcano:
     input:
         script = "src/analysis/02_generate_plots.R",
-        config_file = "config_H2O2_Neuron.yml",
+        config_file = CONFIG_FILE,
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
         volcano = OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png"
@@ -109,7 +114,7 @@ rule generate_pairwise_volcano:
 rule go_enrichment:
     input:
         script = "src/analysis/03_enrichment_analysis.R",
-        config_file = "config_H2O2_Neuron.yml",
+        config_file = CONFIG_FILE,
         # 각 pair별 DE 결과에 의존
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
@@ -131,7 +136,7 @@ rule go_enrichment:
 rule kegg_enrichment:
     input:
         script = "src/analysis/03_enrichment_analysis.R",
-        config_file = "config_H2O2_Neuron.yml",
+        config_file = CONFIG_FILE,
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
         kegg_csv = OUTPUT_DIR / "pairwise/{pair}/kegg_enrichment_{geneset}.csv",
@@ -172,7 +177,7 @@ rule enrichment_done:
 rule go_barplots:
     input:
         script = "src/analysis/04_generate_go_plots.R",
-        config_file = "config_H2O2_Neuron.yml",
+        config_file = CONFIG_FILE,
         # [수정] 플래그 파일 대신 실제 CSV 파일들을 입력으로 받음
         # enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag",
         go_csvs = lambda wildcards: expand(
@@ -191,3 +196,28 @@ rule go_barplots:
         R_ENV_NAME
     shell:
         "Rscript {input.script} --config {input.config_file} --output_dir {params.output_dir} > {log} 2>&1 && touch {output.flag}"
+
+# Rule 5: Generate GO Summary Table for Publication
+rule generate_go_summary_table:
+    input:
+        script = "src/analysis/05_generate_go_table.R",
+        config_file = CONFIG_FILE,
+        enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag",
+        go_csvs = lambda wildcards: expand(
+            OUTPUT_DIR / "pairwise/{pair}/go_enrichment_{geneset}_{ontology}.csv",
+            pair=wildcards.pair,
+            geneset=config.get("enrichment", {}).get("gene_lists", []),
+            ontology=config.get("enrichment", {}).get("go_ontologies", [])
+        )
+    output:
+        excel = OUTPUT_DIR / "pairwise/{pair}/GO_enrichment_summary.xlsx"
+    params:
+        compare = lambda wildcards: wildcards.pair.split('_vs_')[0],
+        base = lambda wildcards: wildcards.pair.split('_vs_')[1],
+        output_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair)
+    log:
+        OUTPUT_DIR / "pairwise/{pair}/logs/05_generate_go_table.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} {params.compare} {params.base} {params.output_dir} > {log} 2>&1"

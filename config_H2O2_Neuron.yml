@@ -8,14 +8,14 @@ species: "mouse"
 # Gene ID 타입: "ENSEMBL", "ENTREZID", "SYMBOL" 등
 # Raw count 파일의 gene ID 형식을 지정합니다.
 # 생략 시 ID 패턴을 통해 자동 감지됩니다.
-gene_id_type: "ENTREZID"
+gene_id_type: "ENSEMBL"
 
 # -------------------------
 # File Paths
 # -------------------------
-count_data_path: "data/raw/H2O2/H2O2_raw_count.csv"
-metadata_path: "data/raw/H2O2/H2O2_metadata.csv"
-output_dir: "output/test"
+count_data_path: "data/raw/H2O2_Neuron/counts_matrix_clean.csv"
+metadata_path: "data/raw/H2O2_Neuron/metadata.csv"
+output_dir: "output/H2O2_Neuron"
 
 # -------------------------
 # Analysis Parameters
@@ -42,19 +42,13 @@ de_analysis:
   # 4. Pairwise Comparisons: 실행할 모든 1:1 비교를 [비교군, 기준군] 쌍으로 명시합니다.
   #    Snakemake가 이 목록을 기반으로 각 비교 작업을 생성합니다.
   pairwise_comparisons:
-    - ["Acute_1D", "Control"]
-    - ["Acute_3D", "Control"]
-    # - ["Chronic_100uM", "Control"]
-    # - ["Chronic_200uM", "Control"]
-    # 예시: 그룹이 더 있다면 아래처럼 추가
-    # - ["Drug_High", "Control"]
-    # - ["Drug_Low", "Control"]
-    # - ["Drug_High", "Drug_Low"]
+    - ["H2O2", "Control"]
+    - ["GABA", "Control"]
 
   # 유의성 기준 (Adjusted p-value)
   padj_cutoff: 0.05
   # Log2 Fold Change 절대값 기준
-  log2fc_cutoff: 1.0
+  log2fc_cutoff: 0.0
 
   # 재현성 및 세부 조정을 위한 옵션
   advanced_options:
@@ -80,7 +74,7 @@ enrichment:
   # 실행할 Gene Ontology 목록: "BP", "CC", "MF" 중에서 원하는 항목만 남기세요.
   go_ontologies: ["BP", "CC", "MF"]
   pvalue_cutoff: 0.05
-  qvalue_cutoff: 0.2
+  qvalue_cutoff: 0.25
 # -------------------------
 # Annotation Databases (자동 설정)
 # -------------------------

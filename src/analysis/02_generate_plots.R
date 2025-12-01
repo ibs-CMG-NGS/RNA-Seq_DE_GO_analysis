@@ -98,14 +98,35 @@ if (opt$task == "pca") {
   }
   
   # 공통 ggplot 시각화
+  # Add sample names to pca_data
+  pca_data$sample_name <- rownames(pca_data)
+  
   pca_plot <- ggplot(pca_data, aes_string(x = "PC1", y = "PC2", color = intgroup)) +
     geom_point(size = 3) +
+    geom_text_repel(
+      aes(label = sample_name), 
+      size = 3.5, 
+      show.legend = FALSE,
+      max.overlaps = Inf,  # 모든 라벨 표시
+      box.padding = 0.5,   # 라벨과 점 사이 여백
+      point.padding = 0.3, # 점 주변 여백
+      segment.color = "grey50",  # 연결선 색상
+      segment.size = 0.3   # 연결선 두께
+    ) +
     xlab(paste0("PC1: ", percentVar[1], "% variance")) +
     ylab(paste0("PC2: ", percentVar[2], "% variance")) +
-    coord_fixed() +
-    ggtitle("Global PCA Plot")
+    coord_cartesian(clip = "off") +  # 라벨 잘림 방지
+    ggtitle("Global PCA Plot") +
+    theme_bw() +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.grid.major = element_line(color = "grey90"),
+      panel.grid.minor = element_line(color = "grey95"),
+      plot.margin = margin(20, 20, 20, 20)  # 플롯 여백 확대 (top, right, bottom, left)
+    )
   
-  ggsave(opt$output_file, plot = pca_plot)
+  ggsave(opt$output_file, plot = pca_plot, width = 12, height = 9, bg = "white")
   cat(paste("Global PCA plot saved to:", opt$output_file, "\n"))
 
 } else if (opt$task == "volcano") {

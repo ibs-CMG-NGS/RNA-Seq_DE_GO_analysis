@@ -126,27 +126,225 @@ gene_list <- if (gene_set == "up") {
   significant_genes
 }
 
+# Handle case with no significant genes
 if (nrow(gene_list) == 0) { 
-  cat("No significant genes. Skipping.\n")
+  cat("No significant genes. Creating empty output files.\n")
+  
+  # Create empty CSV file
+  if (opt$task == "go") {
+    out_csv <- paste0("go_enrichment_", gene_set, "_", opt$ontology, ".csv")
+    out_plot <- paste0("go_dotplot_", gene_set, "_", opt$ontology, ".png")
+    
+    # Empty CSV with header
+    empty_df <- data.frame(
+      ID = character(),
+      Description = character(),
+      GeneRatio = character(),
+      BgRatio = character(),
+      pvalue = numeric(),
+      p.adjust = numeric(),
+      qvalue = numeric(),
+      geneID = character(),
+      Count = integer()
+    )
+    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    
+    # Placeholder plot
+    empty_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = paste0("No significant ", gene_set, " regulated genes found\n",
+                            "(padj < ", config$de_analysis$padj_cutoff, 
+                            ", |log2FC| > ", config$de_analysis$log2fc_cutoff, ")"), 
+               size = 6, hjust = 0.5) +
+      theme_void()
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+    
+  } else if (opt$task == "kegg") {
+    out_csv <- paste0("kegg_enrichment_", gene_set, ".csv")
+    out_plot <- paste0("kegg_dotplot_", gene_set, ".png")
+    
+    # Empty CSV with header
+    empty_df <- data.frame(
+      ID = character(),
+      Description = character(),
+      GeneRatio = character(),
+      BgRatio = character(),
+      pvalue = numeric(),
+      p.adjust = numeric(),
+      qvalue = numeric(),
+      geneID = character(),
+      Count = integer()
+    )
+    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    
+    # Placeholder plot
+    empty_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = paste0("No significant ", gene_set, " regulated genes found\n",
+                            "(padj < ", config$de_analysis$padj_cutoff, 
+                            ", |log2FC| > ", config$de_analysis$log2fc_cutoff, ")"), 
+               size = 6, hjust = 0.5) +
+      theme_void()
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+  }
+  
+  cat("Empty output files created successfully.\n")
   quit(status=0) 
 }
 
-# Get gene IDs from rownames (these are already Entrez IDs in this pipeline)
+# Get gene IDs from rownames
 gene_ids <- rownames(gene_list)
 
 cat(paste("Total genes in list:", length(gene_ids), "\n"))
 cat(paste("First few gene IDs:", paste(head(gene_ids, 3), collapse=", "), "\n"))
 
-# The gene IDs are already Entrez IDs, so use them directly
-entrez_ids <- as.character(gene_ids)
+# --- Determine gene ID type and convert to Entrez if needed ---
+# Step 1: Get gene_id_type from config (if specified)
+gene_id_type <- if ("gene_id_type" %in% names(config)) {
+  toupper(config$gene_id_type)
+} else {
+  # Auto-detect based on ID pattern
+  sample_id <- head(gene_ids[!is.na(gene_ids)], 1)
+  if (length(sample_id) == 0) {
+    stop("No valid gene IDs found for type detection")
+  }
+  
+  detected_type <- if (grepl("^ENSMUSG[0-9]+", sample_id)) {
+    "ENSEMBL"  # Mouse Ensembl
+  } else if (grepl("^ENSG[0-9]+", sample_id)) {
+    "ENSEMBL"  # Human Ensembl
+  } else if (grepl("^[0-9]+$", sample_id)) {
+    "ENTREZID"  # Numeric = Entrez
+  } else if (grepl("^[A-Z][A-Z0-9]+$", sample_id)) {
+    "SYMBOL"  # Gene symbol
+  } else {
+    warning(paste("Could not auto-detect gene ID type. Sample ID:", sample_id))
+    "UNKNOWN"
+  }
+  
+  cat(paste("Auto-detected gene_id_type:", detected_type, "(based on sample ID:", sample_id, ")\n"))
+  detected_type
+}
 
-# Remove any NA values
-entrez_ids <- entrez_ids[!is.na(entrez_ids)]
+cat(paste("Gene ID type:", gene_id_type, "\n"))
 
-cat(paste("Using", length(entrez_ids), "Entrez IDs for enrichment analysis\n"))
+# Step 2: Convert to Entrez IDs if needed
+if (gene_id_type == "ENTREZID") {
+  # Already Entrez IDs - use directly
+  cat("Gene IDs are already in Entrez format. No conversion needed.\n")
+  entrez_ids <- as.character(gene_ids)
+  
+} else if (gene_id_type %in% c("ENSEMBL", "ENSEMBLID", "SYMBOL")) {
+  # Need to convert to Entrez
+  cat(paste("Converting", gene_id_type, "IDs to Entrez IDs...\n"))
+  
+  # Determine keytype for mapIds
+  keytype <- if (gene_id_type == "SYMBOL") {
+    "SYMBOL"
+  } else {
+    # Try both ENSEMBL and ENSEMBLID
+    "ENSEMBL"
+  }
+  
+  entrez_ids <- tryCatch({
+    mapIds(organism_db, 
+           keys = gene_ids,
+           column = "ENTREZID",
+           keytype = keytype,
+           multiVals = "first")
+  }, error = function(e) {
+    if (gene_id_type %in% c("ENSEMBL", "ENSEMBLID")) {
+      # Try alternative keytype
+      alt_keytype <- if (keytype == "ENSEMBL") "ENSEMBLID" else "ENSEMBL"
+      cat(paste("Retrying with keytype:", alt_keytype, "\n"))
+      tryCatch({
+        mapIds(organism_db, 
+               keys = gene_ids,
+               column = "ENTREZID",
+               keytype = alt_keytype,
+               multiVals = "first")
+      }, error = function(e2) {
+        stop(paste("Failed to convert gene IDs. Error:", e2$message))
+      })
+    } else {
+      stop(paste("Failed to convert gene IDs. Error:", e$message))
+    }
+  })
+  
+  # Remove NA values
+  n_before <- length(entrez_ids)
+  entrez_ids <- entrez_ids[!is.na(entrez_ids)]
+  n_after <- length(entrez_ids)
+  
+  cat(paste("Successfully converted", n_after, "out of", n_before, "genes to Entrez IDs\n"))
+  cat(paste("Conversion rate:", round(100 * n_after / n_before, 1), "%\n"))
+  
+} else {
+  stop(paste("Unsupported gene_id_type:", gene_id_type, 
+             "\nSupported types: ENSEMBL, ENTREZID, SYMBOL"))
+}
 
+# Final validation
 if (length(entrez_ids) == 0) { 
-  cat("No valid Entrez IDs. Skipping.\n")
+  cat("No valid Entrez IDs after conversion. Creating empty output files.\n")
+  
+  # Create empty CSV file
+  if (opt$task == "go") {
+    out_csv <- paste0("go_enrichment_", gene_set, "_", opt$ontology, ".csv")
+    out_plot <- paste0("go_dotplot_", gene_set, "_", opt$ontology, ".png")
+    
+    # Empty CSV with header
+    empty_df <- data.frame(
+      ID = character(),
+      Description = character(),
+      GeneRatio = character(),
+      BgRatio = character(),
+      pvalue = numeric(),
+      p.adjust = numeric(),
+      qvalue = numeric(),
+      geneID = character(),
+      Count = integer()
+    )
+    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    
+    # Placeholder plot
+    empty_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = paste0("No valid Entrez IDs after conversion\n",
+                            "Gene ID type: ", gene_id_type), 
+               size = 6, hjust = 0.5) +
+      theme_void()
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+    
+  } else if (opt$task == "kegg") {
+    out_csv <- paste0("kegg_enrichment_", gene_set, ".csv")
+    out_plot <- paste0("kegg_dotplot_", gene_set, ".png")
+    
+    # Empty CSV with header
+    empty_df <- data.frame(
+      ID = character(),
+      Description = character(),
+      GeneRatio = character(),
+      BgRatio = character(),
+      pvalue = numeric(),
+      p.adjust = numeric(),
+      qvalue = numeric(),
+      geneID = character(),
+      Count = integer()
+    )
+    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    
+    # Placeholder plot
+    empty_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+               label = paste0("No valid Entrez IDs after conversion\n",
+                            "Gene ID type: ", gene_id_type), 
+               size = 6, hjust = 0.5) +
+      theme_void()
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+  }
+  
+  cat("Empty output files created successfully.\n")
   quit(status=0) 
 }
 

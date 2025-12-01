@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 
 # --- 1. Load Configuration ---
-configfile: "config_H2O2.yml"
+configfile: "config_H2O2_Neuron.yml"
 
 OUTPUT_DIR = Path(config["output_dir"])
 R_ENV_NAME = "rna-seq-de-go-analysis" 
@@ -41,7 +41,7 @@ rule all:
 rule run_omnibus_test:
     input:
         script = "src/analysis/01a_run_omnibus_test.R",
-        config_file = "config_H2O2.yml",
+        config_file = "config_H2O2_Neuron.yml",
         counts = config["count_data_path"],
         meta = config["metadata_path"]
     output:
@@ -57,7 +57,7 @@ rule run_omnibus_test:
 rule run_pairwise_de:
     input:
         script = "src/analysis/01b_run_pairwise_de.R",
-        config_file = "config_H2O2.yml",
+        config_file = "config_H2O2_Neuron.yml",
         counts = config["count_data_path"],
         meta = config["metadata_path"]
     output:
@@ -78,7 +78,7 @@ rule run_pairwise_de:
 rule generate_global_pca:
     input:
         script = "src/analysis/02_generate_plots.R",
-        config_file = "config_H2O2.yml",
+        config_file = "config_H2O2_Neuron.yml",
         counts = config["count_data_path"],
         meta = config["metadata_path"]
     output:
@@ -94,7 +94,7 @@ rule generate_global_pca:
 rule generate_pairwise_volcano:
     input:
         script = "src/analysis/02_generate_plots.R",
-        config_file = "config_H2O2.yml",
+        config_file = "config_H2O2_Neuron.yml",
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
         volcano = OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png"
@@ -109,7 +109,7 @@ rule generate_pairwise_volcano:
 rule go_enrichment:
     input:
         script = "src/analysis/03_enrichment_analysis.R",
-        config_file = "config_H2O2.yml",
+        config_file = "config_H2O2_Neuron.yml",
         # 각 pair별 DE 결과에 의존
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
@@ -131,7 +131,7 @@ rule go_enrichment:
 rule kegg_enrichment:
     input:
         script = "src/analysis/03_enrichment_analysis.R",
-        config_file = "config_H2O2.yml",
+        config_file = "config_H2O2_Neuron.yml",
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
         kegg_csv = OUTPUT_DIR / "pairwise/{pair}/kegg_enrichment_{geneset}.csv",
@@ -172,7 +172,7 @@ rule enrichment_done:
 rule go_barplots:
     input:
         script = "src/analysis/04_generate_go_plots.R",
-        config_file = "config_H2O2.yml",
+        config_file = "config_H2O2_Neuron.yml",
         # [수정] 플래그 파일 대신 실제 CSV 파일들을 입력으로 받음
         # enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag",
         go_csvs = lambda wildcards: expand(

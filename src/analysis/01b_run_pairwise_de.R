@@ -332,14 +332,39 @@ final_results_df <- merge(res_df, as.data.frame(normalized_counts), by = "row.na
 rownames(final_results_df) <- final_results_df$Row.names
 final_results_df$Row.names <- NULL
 
+# Reorder columns: DE stats first, then normalized counts grouped by condition and sorted
+de_stat_cols <- intersect(c("symbol", "baseMean", "log2FoldChange", "lfcSE", "stat", "pvalue", "padj"), 
+                          colnames(final_results_df))
+norm_count_cols <- setdiff(colnames(final_results_df), de_stat_cols)
+
+# Group and sort normalized count columns by condition
+# Use the original metadata to get group assignments for target samples
+sample_order <- character()
+
+# For each group (base first, then compare), add sorted samples
+for (grp in c(base_group, compare_group)) {
+  # Get samples belonging to this group from target_samples
+  grp_samples <- target_samples[meta[target_samples, group_var] == grp]
+  grp_samples_sorted <- sort(grp_samples)  # Alphabetical order within group
+  sample_order <- c(sample_order, grp_samples_sorted)
+}
+
+# Reorder columns: DE stats + ordered normalized counts
+final_results_df <- final_results_df[, c(de_stat_cols, sample_order)]
+
+cat(paste("Column order: DE stats followed by samples grouped by condition (", 
+          base_group, "then", compare_group, ") and sorted alphabetically\n"))
+
 # Save main DE results with normalized counts
 output_csv_path <- file.path(output_dir, "final_de_results.csv")
 write.csv(final_results_df, file = output_csv_path, row.names = TRUE)
 cat(paste("Pairwise results saved to:", output_csv_path, "\n"))
 
 # Save normalized counts separately for easier access
+# Also reorder columns for normalized counts
+normalized_counts_ordered <- normalized_counts[, sample_order]
 normalized_counts_path <- file.path(output_dir, "normalized_counts.csv")
-write.csv(normalized_counts, file = normalized_counts_path, row.names = TRUE)
+write.csv(normalized_counts_ordered, file = normalized_counts_path, row.names = TRUE)
 cat(paste("Normalized counts saved to:", normalized_counts_path, "\n"))
 
 if (isTRUE(config$export$export_to_excel)) {
@@ -352,9 +377,9 @@ if (isTRUE(config$export$export_to_excel)) {
   addWorksheet(wb, "DE_Results")
   writeData(wb, "DE_Results", final_results_df, rowNames = TRUE)
   
-  # Sheet 2: Normalized counts only
+  # Sheet 2: Normalized counts only (ordered)
   addWorksheet(wb, "Normalized_Counts")
-  writeData(wb, "Normalized_Counts", normalized_counts, rowNames = TRUE)
+  writeData(wb, "Normalized_Counts", normalized_counts_ordered, rowNames = TRUE)
   
   # Sheet 3: Significant genes only
   sig_genes <- final_results_df[!is.na(final_results_df$padj) & 

@@ -164,6 +164,14 @@ c) 노트북 파일 열기 및 실행: 웹 브라우저에서 notebooks/analysis
 # 이 설정에 따라 아래 organism_db와 kegg_code가 자동으로 결정됩니다.
 species: "human"
 
+# Gene ID 타입: "ENSEMBL", "ENTREZID", "SYMBOL" 등
+# Raw count 파일의 gene ID 형식을 지정합니다.
+# 생략 시 ID 패턴을 통해 자동 감지됩니다.
+# - ENSEMBL: ENSG00000... (human) 또는 ENSMUSG00000... (mouse)
+# - ENTREZID: 숫자로만 구성된 ID (예: 1234, 5678)
+# - SYMBOL: 유전자 심볼 (예: TP53, GAPDH)
+gene_id_type: "ENSEMBL"
+
 # -------------------------
 # File Paths
 # -------------------------
@@ -328,7 +336,105 @@ RNA-Seq_DE_GO_analysis/
  
 ---
 
-## � Pairwise 비교 시 정규화 전략
+## 🧬 Gene ID 타입 설정
+
+이 파이프라인은 다양한 Gene ID 형식을 지원하며, `config.yml`의 `gene_id_type` 설정으로 입력 데이터의 ID 형식을 지정할 수 있습니다.
+
+### 지원되는 Gene ID 타입
+
+| ID 타입 | 설명 | 예시 | 사용 시기 |
+|:--------|:-----|:-----|:---------|
+| **ENSEMBL** | Ensembl 유전자 ID | `ENSG00000141510` (human)<br>`ENSMUSG00000051951` (mouse) | RNA-seq 정량화 도구(STAR, Salmon 등)의 기본 출력 |
+| **ENTREZID** | NCBI Entrez 유전자 ID | `7157`, `5594` | 오래된 마이크로어레이 데이터<br>NCBI 기반 분석 |
+| **SYMBOL** | 유전자 심볼 | `TP53`, `GAPDH` | 읽기 쉬운 결과 제시용<br>문헌 기반 분석 |
+
+### 설정 방법
+
+#### 1. **명시적 지정 (추천)** ⭐
+
+`config.yml`에서 직접 지정:
+
+```yaml
+# config.yml
+species: "mouse"
+gene_id_type: "ENSEMBL"  # 또는 "ENTREZID", "SYMBOL"
+```
+
+**장점**: 명확하고 오류 가능성이 낮음
+
+#### 2. **자동 감지 (Fallback)**
+
+`gene_id_type`을 생략하면 첫 번째 유전자 ID의 패턴을 분석하여 자동 감지:
+
+```yaml
+# config.yml
+species: "mouse"
+# gene_id_type: 생략 시 자동 감지
+```
+
+**자동 감지 규칙**:
+- `ENSMUSG00000...` → `ENSEMBL` (마우스)
+- `ENSG00000...` → `ENSEMBL` (사람)
+- 숫자로만 구성 (예: `12345`) → `ENTREZID`
+- 대문자로 시작하는 영숫자 (예: `TP53`) → `SYMBOL`
+
+**주의**: 자동 감지는 편리하지만, 명시적 지정이 더 안전합니다.
+
+### 내부 처리 방식
+
+GO/KEGG enrichment 분석은 **Entrez ID**를 필요로 합니다. 파이프라인은 자동으로 변환을 수행합니다:
+
+1. **ENTREZID**: 변환 불필요 → 바로 사용
+2. **ENSEMBL**: `AnnotationDbi::mapIds()`로 Entrez ID 변환
+3. **SYMBOL**: `AnnotationDbi::mapIds()`로 Entrez ID 변환
+
+**변환 예시**:
+```r
+# ENSEMBL → ENTREZID
+ENSMUSG00000051951 → 18999  # Gapdh 유전자
+
+# 일부 유전자는 변환 실패 (NA) 가능 → 자동 제외
+```
+
+### 데이터 준비 가이드
+
+#### ✅ Raw count 파일 형식
+
+```csv
+Geneid,Sample1,Sample2,Sample3
+ENSMUSG00000051951,1234,5678,9012
+ENSMUSG00000021803,234,567,890
+```
+
+**중요**: 
+- 첫 번째 열이 Gene ID
+- `gene_id_type`과 일치하는 ID 형식 사용
+- 헤더 행 필수
+
+#### ⚠️ 주의사항
+
+1. **일관성**: 모든 유전자가 동일한 ID 타입이어야 함
+2. **버전 번호**: ENSEMBL ID의 버전 번호는 제거 권장
+   - ❌ `ENSMUSG00000051951.4`
+   - ✅ `ENSMUSG00000051951`
+3. **변환율**: ENSEMBL → ENTREZID 변환 시 일부 유전자는 매핑 실패 가능 (보통 80-95% 성공)
+
+### 문제 해결
+
+**증상**: "No valid Entrez IDs after conversion" 오류
+
+**해결 방법**:
+1. `gene_id_type`이 실제 데이터와 일치하는지 확인
+2. Raw count 파일의 첫 몇 줄 확인:
+   ```bash
+   head -5 data/raw/your_counts.csv
+   ```
+3. Organism database가 올바른지 확인 (`species` 설정)
+4. ENSEMBL ID 버전 번호 제거 시도
+
+---
+
+## 🔄 Pairwise 비교 시 정규화 전략
 
 다중 그룹 실험에서 pairwise 비교를 수행할 때, 정규화 방법에 따라 결과가 달라질 수 있습니다. 이 파이프라인은 두 가지 정규화 전략을 지원하며, `config.yml`의 `advanced_options.pairwise_normalization` 설정으로 선택할 수 있습니다.
 

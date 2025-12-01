@@ -1,0 +1,9 @@
+name: bridge_converter
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.8
+  - pandas>=1.3
+  - openpyxl>=3.0
+  - pyyaml>=5.0

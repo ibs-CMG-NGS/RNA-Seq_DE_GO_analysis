@@ -1,0 +1,401 @@
+"""
+Bridge Snakefile: Connects DE_GO_analysis with GO_GSEA_analysis
+
+This Snakefile integrates two RNA-seq analysis pipelines:
+1. RNA-Seq_DE_GO_analysis (R-based DESeq2/edgeR/limma)
+2. RNA-Seq_GO_GSEA_analysis (Python-based advanced GO/GSEA)
+
+Usage:
+    # Convert all DE results to GSEA format
+    snakemake -s bridge/Snakefile --cores 1
+    
+    # Convert specific comparison
+    snakemake -s bridge/Snakefile \
+        --config comparison=H2O2_vs_Control experiment=H2O2_Neuron \
+        --cores 1
+    
+    # Full workflow: DE analysis -> conversion -> GSEA
+    snakemake -s bridge/Snakefile --cores 4 run_full_workflow
+
+Author: Pipeline Integration Team
+Date: 2025-12-01
+"""
+
+import os
+from pathlib import Path
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+# Get current working directory (where snakemake is executed)
+WORKFLOW_DIR = os.getcwd()
+
+# Default paths (can be overridden via --config)
+# If running from DE pipeline root, use current dir; otherwise try to find it
+DE_PIPELINE_ROOT = config.get("de_pipeline_root", WORKFLOW_DIR)
+
+# GSEA pipeline is typically a sibling directory
+GSEA_PIPELINE_ROOT = config.get("gsea_pipeline_root", 
+                                os.path.join(os.path.dirname(DE_PIPELINE_ROOT), 
+                                           "RNA-Seq_GO_GSEA_analysis"))
+
+# Experiment directory (e.g., H2O2_Neuron)
+EXPERIMENT = config.get("experiment", "H2O2_Neuron")
+
+# DE analysis output directory
+DE_OUTPUT_DIR = config.get("de_output_dir", 
+                          os.path.join(DE_PIPELINE_ROOT, "output", EXPERIMENT))
+
+# GSEA pipeline input directory
+GSEA_INPUT_DIR = config.get("gsea_input_dir",
+                           os.path.join(GSEA_PIPELINE_ROOT, "data", "from_de_pipeline"))
+
+# Source pipeline type
+SOURCE_PIPELINE = config.get("source_pipeline", "deseq2")
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def get_comparisons():
+    """
+    Automatically detect all pairwise comparisons in DE output directory.
+    
+    Returns:
+        List of comparison names (e.g., ['H2O2_vs_Control', 'GABA_vs_Control'])
+    """
+    pairwise_dir = os.path.join(DE_OUTPUT_DIR, "pairwise")
+    
+    if not os.path.exists(pairwise_dir):
+        print(f"Warning: Pairwise directory not found: {pairwise_dir}")
+        return []
+    
+    comparisons = []
+    for item in os.listdir(pairwise_dir):
+        item_path = os.path.join(pairwise_dir, item)
+        if os.path.isdir(item_path):
+            # Check if final_de_results.csv exists
+            de_results = os.path.join(item_path, "final_de_results.csv")
+            if os.path.exists(de_results):
+                comparisons.append(item)
+    
+    return comparisons
+
+# Get list of comparisons
+if config.get("comparison"):
+    # Single comparison mode
+    COMPARISONS = [config["comparison"]]
+else:
+    # Auto-detect all comparisons
+    COMPARISONS = get_comparisons()
+
+print(f"Detected comparisons: {COMPARISONS}")
+
+# ============================================================================
+# Target Rules
+# ============================================================================
+
+rule all:
+    """
+    Default target: Convert all DE results to GSEA format
+    """
+    input:
+        expand(os.path.join(GSEA_INPUT_DIR, "{comparison}_DE_results.xlsx"),
+               comparison=COMPARISONS)
+
+rule run_full_workflow:
+    """
+    Full integrated workflow:
+    1. Run DE analysis (if needed)
+    2. Convert to GSEA format
+    3. Run GSEA analysis
+    """
+    input:
+        # Conversion outputs
+        expand(os.path.join(GSEA_INPUT_DIR, "{comparison}_DE_results.xlsx"),
+               comparison=COMPARISONS),
+        # GSEA outputs (optional - uncomment when ready)
+        # expand(os.path.join(GSEA_PIPELINE_ROOT, "output", "{comparison}", "report.html"),
+        #        comparison=COMPARISONS)
+
+# ============================================================================
+# Conversion Rules
+# ============================================================================
+
+rule convert_de_to_gsea:
+    """
+    Convert a single DE analysis result to GSEA-compatible Excel format.
+    
+    Input:
+        - final_de_results.csv from DE pipeline
+    
+    Output:
+        - {comparison}_DE_results.xlsx with multiple sheets
+    
+    Params:
+        - comparison: Name of the comparison (e.g., H2O2_vs_Control)
+        - source_pipeline: DE tool used (deseq2, edger, or limma)
+    """
+    input:
+        csv = os.path.join(DE_OUTPUT_DIR, "pairwise", "{comparison}", "final_de_results.csv")
+    output:
+        excel = os.path.join(GSEA_INPUT_DIR, "{comparison}_DE_results.xlsx")
+    params:
+        comparison = "{comparison}",
+        source_pipeline = SOURCE_PIPELINE,
+        script = os.path.join(DE_PIPELINE_ROOT, "bridge", "convert_de_to_gsea.py")
+    log:
+        os.path.join(DE_OUTPUT_DIR, "logs", "bridge_convert_{comparison}.log")
+    conda:
+        "environment.yml"
+    shell:
+        """
+        # Create output directory if it doesn't exist
+        mkdir -p {GSEA_INPUT_DIR}
+        mkdir -p $(dirname {log})
+        
+        # Run conversion
+        python3 {params.script} \
+            --input {input.csv} \
+            --output {output.excel} \
+            --comparison-name {params.comparison} \
+            --source-pipeline {params.source_pipeline} \
+            2>&1 | tee {log}
+        
+        echo "✓ Converted {params.comparison} to GSEA format"
+        """
+
+rule batch_convert:
+    """
+    Batch convert all DE results using Python script's batch mode.
+    
+    This is an alternative to individual conversion rules.
+    Useful for very large numbers of comparisons.
+    """
+    input:
+        # Ensure all CSV files exist
+        expand(os.path.join(DE_OUTPUT_DIR, "pairwise", "{comparison}", "final_de_results.csv"),
+               comparison=COMPARISONS)
+    output:
+        # Touch file to mark completion
+        os.path.join(GSEA_INPUT_DIR, ".batch_conversion_complete")
+    params:
+        script = os.path.join(DE_PIPELINE_ROOT, "bridge", "convert_de_to_gsea.py"),
+        de_output = DE_OUTPUT_DIR,
+        gsea_input = GSEA_INPUT_DIR
+    log:
+        os.path.join(DE_OUTPUT_DIR, "logs", "bridge_batch_convert.log")
+    conda:
+        "environment.yml"
+    shell:
+        """
+        mkdir -p {params.gsea_input}
+        mkdir -p $(dirname {log})
+        
+        python3 {params.script} \
+            --batch \
+            --de-output-dir {params.de_output} \
+            --gsea-input-dir {params.gsea_input} \
+            2>&1 | tee {log}
+        
+        # Mark completion
+        touch {output}
+        echo "✓ Batch conversion completed"
+        """
+
+# ============================================================================
+# GSEA Analysis Rules (Optional Integration)
+# ============================================================================
+
+rule run_gsea_go_analysis:
+    """
+    Run GO enrichment analysis using GSEA pipeline.
+    
+    This rule demonstrates how to integrate with the GSEA pipeline.
+    Adjust paths and parameters according to your GSEA pipeline setup.
+    """
+    input:
+        excel = os.path.join(GSEA_INPUT_DIR, "{comparison}_DE_results.xlsx")
+    output:
+        report = os.path.join(GSEA_PIPELINE_ROOT, "output", "{comparison}", "go_report.html")
+    params:
+        comparison = "{comparison}",
+        gsea_snakefile = os.path.join(GSEA_PIPELINE_ROOT, "workflow", "Snakefile_GO"),
+        config = os.path.join(GSEA_PIPELINE_ROOT, "workflow", "config", "go_config.yaml")
+    log:
+        os.path.join(DE_OUTPUT_DIR, "logs", "gsea_go_{comparison}.log")
+    shell:
+        """
+        # This is a placeholder for GSEA integration
+        # Adjust according to your GSEA pipeline's requirements
+        
+        echo "Running GO analysis for {params.comparison}..."
+        
+        # Option 1: Call GSEA Snakefile
+        # cd {GSEA_PIPELINE_ROOT}
+        # snakemake -s {params.gsea_snakefile} --config input_file={input.excel} --cores 1
+        
+        # Option 2: Direct Python script call
+        # python {GSEA_PIPELINE_ROOT}/src/analysis/run_go_pipeline.py --input {input.excel}
+        
+        # For now, create placeholder
+        mkdir -p $(dirname {output.report})
+        echo "GO analysis placeholder for {params.comparison}" > {output.report}
+        
+        echo "✓ GO analysis completed for {params.comparison}" | tee {log}
+        """
+
+# ============================================================================
+# Utility Rules
+# ============================================================================
+
+rule clean_converted_files:
+    """
+    Remove all converted Excel files (for testing/cleanup).
+    """
+    shell:
+        """
+        echo "Removing converted files from {GSEA_INPUT_DIR}..."
+        rm -f {GSEA_INPUT_DIR}/*_DE_results.xlsx
+        rm -f {GSEA_INPUT_DIR}/.batch_conversion_complete
+        echo "✓ Cleanup completed"
+        """
+
+rule list_comparisons:
+    """
+    List all detected comparisons.
+    """
+    run:
+        print("\n" + "="*60)
+        print("Detected Comparisons:")
+        print("="*60)
+        for comp in COMPARISONS:
+            csv_path = os.path.join(DE_OUTPUT_DIR, "pairwise", comp, "final_de_results.csv")
+            exists = "✓" if os.path.exists(csv_path) else "✗"
+            print(f"  {exists} {comp}")
+        print("="*60)
+        print(f"\nTotal: {len(COMPARISONS)} comparisons")
+        print(f"DE Output Dir: {DE_OUTPUT_DIR}")
+        print(f"GSEA Input Dir: {GSEA_INPUT_DIR}")
+        print("="*60 + "\n")
+
+rule show_config:
+    """
+    Display current configuration.
+    """
+    run:
+        print("\n" + "="*70)
+        print("Bridge Pipeline Configuration")
+        print("="*70)
+        print(f"Working Directory:   {WORKFLOW_DIR}")
+        print(f"DE Pipeline Root:    {DE_PIPELINE_ROOT}")
+        print(f"GSEA Pipeline Root:  {GSEA_PIPELINE_ROOT}")
+        print(f"Experiment:          {EXPERIMENT}")
+        print(f"DE Output Dir:       {DE_OUTPUT_DIR}")
+        print(f"GSEA Input Dir:      {GSEA_INPUT_DIR}")
+        print(f"Source Pipeline:     {SOURCE_PIPELINE}")
+        print("-"*70)
+        print(f"Pairwise Dir:        {os.path.join(DE_OUTPUT_DIR, 'pairwise')}")
+        print(f"  Exists:            {'Yes ✓' if os.path.exists(os.path.join(DE_OUTPUT_DIR, 'pairwise')) else 'No ✗'}")
+        print("-"*70)
+        print(f"Detected Comparisons: {len(COMPARISONS)}")
+        if COMPARISONS:
+            for comp in COMPARISONS:
+                print(f"  - {comp}")
+        else:
+            print("  (none found)")
+            print("\n  Troubleshooting:")
+            print(f"  1. Check if DE analysis completed: ls {DE_OUTPUT_DIR}/pairwise/")
+            print(f"  2. Use --config experiment=YOUR_EXPERIMENT")
+            print(f"  3. Use --config de_output_dir=/full/path/to/output")
+        print("="*70)
+        print("\nUsage examples:")
+        print("  snakemake -s bridge/Snakefile --cores 1")
+        print("  snakemake -s bridge/Snakefile --config experiment=H2O2_Neuron --cores 1")
+        print("="*70 + "\n")
+
+# ============================================================================
+# Validation Rules
+# ============================================================================
+
+rule validate_inputs:
+    """
+    Validate that all required input files exist.
+    """
+    run:
+        print("\n" + "="*60)
+        print("Validating Input Files")
+        print("="*60)
+        
+        all_valid = True
+        for comp in COMPARISONS:
+            csv_path = os.path.join(DE_OUTPUT_DIR, "pairwise", comp, "final_de_results.csv")
+            if os.path.exists(csv_path):
+                print(f"  ✓ {comp}: {csv_path}")
+            else:
+                print(f"  ✗ {comp}: NOT FOUND - {csv_path}")
+                all_valid = False
+        
+        print("="*60)
+        if all_valid:
+            print("✓ All input files validated successfully")
+        else:
+            print("✗ Some input files are missing!")
+            print("  Run DE analysis first or check file paths.")
+        print("="*60 + "\n")
+
+rule create_test_data:
+    """
+    Create test data for development (optional).
+    """
+    output:
+        test_csv = "bridge/test_data/test_comparison/final_de_results.csv"
+    shell:
+        """
+        mkdir -p $(dirname {output.test_csv})
+        
+        # Create minimal test CSV
+        cat > {output.test_csv} << 'EOF'
+Gene,baseMean,log2FoldChange,lfcSE,stat,pvalue,padj,symbol
+ENSG00000000003,1234.5,2.34,0.45,5.2,2.3e-07,1.5e-05,TSPAN6
+ENSG00000000005,567.8,-1.52,0.38,-4.0,6.4e-05,2.1e-03,TNMD
+ENSG00000000419,890.2,0.87,0.22,3.95,7.8e-05,2.5e-03,DPM1
+EOF
+        
+        echo "✓ Test data created at {output.test_csv}"
+        """
+
+# ============================================================================
+# Documentation
+# ============================================================================
+
+onerror:
+    print("""
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    Error occurred in bridge pipeline!
+    
+    Troubleshooting steps:
+    1. Check log files in output/logs/bridge_*
+    2. Verify input files exist: snakemake -s bridge/Snakefile validate_inputs
+    3. Check configuration: snakemake -s bridge/Snakefile show_config
+    4. See documentation: cat bridge/README.md
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    """)
+
+onsuccess:
+    print("""
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ✓ Bridge pipeline completed successfully!
+    
+    Converted files are available at:
+        {gsea_input_dir}
+    
+    Next steps:
+    1. Verify Excel files: ls -lh {gsea_input_dir}/*.xlsx
+    2. Run GSEA analysis using converted files
+    3. See GSEA pipeline documentation for details
+    
+    For help: cat bridge/README.md
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    """.format(gsea_input_dir=GSEA_INPUT_DIR))

@@ -394,8 +394,87 @@ RNA-Seq_DE_GO_analysis/
 │   └── utils/                      # 유틸리티 스크립트
 │        └── load_data.R
 ├── Snakefile                   # ★ (권장) Snakemake 파이프라인 정의
+├── bridge/                     # 🔗 Pipeline 연결 스크립트
+│   ├── convert_de_to_gsea.py      # DE 결과 → GSEA 포맷 변환
+│   ├── run_downstream_analysis.sh # 자동화 wrapper 스크립트
+│   ├── README.md                  # 상세 사용 설명서
+│   └── EXAMPLES.sh                # 사용 예제 모음
 └── README.md                   # 프로젝트 설명 및 사용 방법
 ```
+
+---
+
+## 🔗 Pipeline 연결: Advanced GSEA 분석으로 확장하기
+
+이 파이프라인으로 DE 분석과 기본 GO enrichment를 완료한 후, 더 심화된 GO 분석이나 GSEA(Gene Set Enrichment Analysis)가 필요하다면 **RNA-Seq_GO_GSEA_analysis** 파이프라인과 연결할 수 있습니다.
+
+### Bridge Layer 개요
+
+`bridge/` 디렉토리에는 두 파이프라인을 연결하는 통합 워크플로우가 포함되어 있습니다:
+
+```
+RNA-Seq_DE_GO_analysis  →  Bridge Snakefile  →  RNA-Seq_GO_GSEA_analysis
+   (R-based, DESeq2)       (자동 변환 워크플로우)    (Python-based, Advanced)
+```
+
+### 빠른 시작
+
+#### 🎯 방법 1: Snakemake 통합 워크플로우 (권장) ⭐
+
+```bash
+# 모든 비교군 결과를 GSEA 포맷으로 자동 변환
+snakemake -s bridge/Snakefile --cores 1
+
+# 특정 비교군만 변환
+snakemake -s bridge/Snakefile \
+  --config comparison=H2O2_vs_Control experiment=H2O2_Neuron \
+  --cores 1
+
+# 병렬 처리 (여러 비교군 동시 변환)
+snakemake -s bridge/Snakefile --cores 4
+```
+
+**장점**: 
+- ✅ 의존성 자동 관리
+- ✅ 병렬 처리 지원
+- ✅ 변경된 파일만 재처리
+- ✅ 로그 자동 생성
+- ✅ 이미 익숙한 Snakemake 환경
+
+#### 방법 2: Python 스크립트 직접 실행
+
+```bash
+cd bridge
+
+# 단일 비교
+python3 convert_de_to_gsea.py \
+  --input ../output/H2O2_Neuron/pairwise/H2O2_vs_Control/final_de_results.csv \
+  --output ../../RNA-Seq_GO_GSEA_analysis/data/H2O2_vs_Control.xlsx
+
+# 일괄 변환
+python3 convert_de_to_gsea.py \
+  --batch \
+  --de-output-dir ../output/H2O2_Neuron \
+  --gsea-input-dir ../../RNA-Seq_GO_GSEA_analysis/data/from_de_pipeline
+```
+
+### 주요 기능
+
+- **Snakemake 통합**: 두 파이프라인 모두 Snakemake 기반으로 자연스럽게 연결
+- **자동 포맷 변환**: CSV → Excel 변환 및 컬럼명 표준화
+- **병렬 처리**: 여러 비교군 동시 처리 가능
+- **의존성 추적**: 파일 변경 시 필요한 부분만 재실행
+- **품질 검증**: NA 값 제거, 통계적 유의성 기준 정렬
+- **메타데이터 포함**: 분석 정보와 요약 통계 자동 생성
+
+### 상세 문서
+
+자세한 사용법, 옵션 설명, 문제 해결 방법은 다음을 참조하세요:
+
+- **⭐ Snakemake 가이드** (권장): [`bridge/SNAKEMAKE_GUIDE.md`](bridge/SNAKEMAKE_GUIDE.md)
+- **Python 스크립트 가이드**: [`bridge/README.md`](bridge/README.md)
+- **사용 예제 모음**: [`bridge/EXAMPLES.sh`](bridge/EXAMPLES.sh)
+- **워크플로우 다이어그램**: [`bridge/WORKFLOW_DIAGRAM.md`](bridge/WORKFLOW_DIAGRAM.md)
 
 ---
 

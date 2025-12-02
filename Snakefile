@@ -30,6 +30,12 @@ rule all:
         # 1b. Global PCA Plot (runs once)
         OUTPUT_DIR / "global_pca_plot.png",
 
+        # 1c. Global QC Plots (if enabled)
+        expand(OUTPUT_DIR / "qc_plots/.global_qc_done.flag", allow_missing=True) if config.get("qc_plots", {}).get("generate_global_qc", False) else [],
+        
+        # 1d. Global QC Report (if enabled)
+        expand(OUTPUT_DIR / "qc_plots/global_qc_report.html", allow_missing=True) if config.get("qc_plots", {}).get("generate_global_qc", False) else [],
+
         # 2. All Pairwise results
         expand(OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv", pair=PAIRS),
         expand(OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png", pair=PAIRS),
@@ -38,7 +44,13 @@ rule all:
         # Barplot 완료 플래그
         expand(OUTPUT_DIR / "pairwise/{pair}/.go_barplots_done.flag", pair=PAIRS),
         # GO Summary Table (논문용 통합 Excel 파일)
-        expand(OUTPUT_DIR / "pairwise/{pair}/GO_enrichment_summary.xlsx", pair=PAIRS)
+        expand(OUTPUT_DIR / "pairwise/{pair}/GO_enrichment_summary.xlsx", pair=PAIRS),
+        
+        # 2b. Pairwise QC Plots (if enabled)
+        expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/.pairwise_qc_done.flag", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else [],
+        
+        # 2c. Pairwise QC Reports (if enabled)
+        expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/pairwise_qc_report.html", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else []
 
 # --- 4. Analysis Rules ---
 
@@ -95,6 +107,53 @@ rule generate_global_pca:
     shell:
         "Rscript {input.script} --config {input.config_file} --task pca --output_file {output.pca} > {log} 2>&1"
 
+# Rule 2a-1: Generate Global QC Plots
+rule generate_global_qc_plots:
+    input:
+        script = "src/analysis/02a_generate_qc_plots.R",
+        config_file = CONFIG_FILE,
+        counts = config["count_data_path"],
+        meta = config["metadata_path"]
+    output:
+        flag = touch(OUTPUT_DIR / "qc_plots/.global_qc_done.flag"),
+        sample_dist = OUTPUT_DIR / "qc_plots/sample_distance_heatmap.png",
+        dispersion = OUTPUT_DIR / "qc_plots/dispersion_plot.png",
+        pca = OUTPUT_DIR / "qc_plots/pca_plot.png",
+        scree = OUTPUT_DIR / "qc_plots/pca_scree_plot.png",
+        boxplot = OUTPUT_DIR / "qc_plots/count_distribution_boxplot.png"
+    params:
+        output_dir = str(OUTPUT_DIR / "qc_plots")
+    log:
+        OUTPUT_DIR / "logs/02a_generate_global_qc_plots.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --output_dir {params.output_dir} > {log} 2>&1"
+
+# Rule 2a-2: Generate Global QC Report (HTML)
+rule generate_global_qc_report:
+    input:
+        script = "src/analysis/02c_generate_global_qc_report.R",
+        config_file = CONFIG_FILE,
+        flag = OUTPUT_DIR / "qc_plots/.global_qc_done.flag",
+        plots = [
+            OUTPUT_DIR / "qc_plots/sample_distance_heatmap.png",
+            OUTPUT_DIR / "qc_plots/dispersion_plot.png",
+            OUTPUT_DIR / "qc_plots/pca_plot.png",
+            OUTPUT_DIR / "qc_plots/pca_scree_plot.png",
+            OUTPUT_DIR / "qc_plots/count_distribution_boxplot.png"
+        ]
+    output:
+        html = OUTPUT_DIR / "qc_plots/global_qc_report.html"
+    params:
+        qc_plots_dir = str(OUTPUT_DIR / "qc_plots")
+    log:
+        OUTPUT_DIR / "logs/02c_generate_global_qc_report.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --qc_plots_dir {params.qc_plots_dir} --output_file {output.html} > {log} 2>&1"
+
 # Rule 2b: Generate Pairwise Volcano Plot
 rule generate_pairwise_volcano:
     input:
@@ -109,6 +168,57 @@ rule generate_pairwise_volcano:
         R_ENV_NAME
     shell:
         "Rscript {input.script} --config {input.config_file} --task volcano --input_file {input.de_results} --output_file {output.volcano} > {log} 2>&1"
+
+# Rule 2b-1: Generate Pairwise QC Plots
+rule generate_pairwise_qc_plots:
+    input:
+        script = "src/analysis/02b_generate_pairwise_qc_plots.R",
+        config_file = CONFIG_FILE,
+        de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
+    output:
+        flag = touch(OUTPUT_DIR / "pairwise/{pair}/qc_plots/.pairwise_qc_done.flag"),
+        ma_plot = OUTPUT_DIR / "pairwise/{pair}/qc_plots/ma_plot.png",
+        pval_hist = OUTPUT_DIR / "pairwise/{pair}/qc_plots/pvalue_histogram.png",
+        padj_hist = OUTPUT_DIR / "pairwise/{pair}/qc_plots/padj_histogram.png",
+        heatmap = OUTPUT_DIR / "pairwise/{pair}/qc_plots/top_genes_heatmap.png",
+        fc_dist = OUTPUT_DIR / "pairwise/{pair}/qc_plots/log2fc_distribution.png",
+        effect_plot = OUTPUT_DIR / "pairwise/{pair}/qc_plots/effect_size_vs_significance.png"
+    params:
+        output_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair / "qc_plots"),
+        comparison = lambda wildcards: wildcards.pair
+    log:
+        OUTPUT_DIR / "pairwise/{pair}/logs/02b_generate_pairwise_qc_plots.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --comparison {params.comparison} --de_results {input.de_results} --output_dir {params.output_dir} > {log} 2>&1"
+
+# Rule 2b-2: Generate Pairwise QC Report (HTML)
+rule generate_pairwise_qc_report:
+    input:
+        script = "src/analysis/02d_generate_pairwise_qc_report.R",
+        config_file = CONFIG_FILE,
+        de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv",
+        flag = OUTPUT_DIR / "pairwise/{pair}/qc_plots/.pairwise_qc_done.flag",
+        plots = [
+            OUTPUT_DIR / "pairwise/{pair}/qc_plots/ma_plot.png",
+            OUTPUT_DIR / "pairwise/{pair}/qc_plots/pvalue_histogram.png",
+            OUTPUT_DIR / "pairwise/{pair}/qc_plots/padj_histogram.png",
+            OUTPUT_DIR / "pairwise/{pair}/qc_plots/top_genes_heatmap.png",
+            OUTPUT_DIR / "pairwise/{pair}/qc_plots/log2fc_distribution.png",
+            OUTPUT_DIR / "pairwise/{pair}/qc_plots/effect_size_vs_significance.png"
+        ]
+    output:
+        html = OUTPUT_DIR / "pairwise/{pair}/qc_plots/pairwise_qc_report.html"
+    params:
+        qc_plots_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair / "qc_plots"),
+        comparison = lambda wildcards: wildcards.pair
+    log:
+        OUTPUT_DIR / "pairwise/{pair}/logs/02d_generate_pairwise_qc_report.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --comparison {params.comparison} --de_results {input.de_results} --qc_plots_dir {params.qc_plots_dir} --output_file {output.html} > {log} 2>&1"
 
 # Rule 3a: Pairwise GO Enrichment ({pair}, {geneset}, {ontology})
 rule go_enrichment:

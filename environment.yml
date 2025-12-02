@@ -24,6 +24,9 @@ dependencies:
   - r-gdtools
   - r-systemfonts
   - r-openxlsx
+  - r-pheatmap
+  - r-rcolorbrewer
+  - r-reshape2
 
   # Bioconductor 패키지 (Conda 설치 가능)
   - bioconductor-deseq2

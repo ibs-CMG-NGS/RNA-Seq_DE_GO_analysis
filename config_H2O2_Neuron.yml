@@ -75,6 +75,30 @@ enrichment:
   go_ontologies: ["BP", "CC", "MF"]
   pvalue_cutoff: 0.05
   qvalue_cutoff: 0.25
+
+# -------------------------
+# QC Plots Settings
+# -------------------------
+qc_plots:
+  # Global QC plots (모든 샘플 대상)
+  generate_global_qc: true
+  
+  # Pairwise QC plots (각 비교군별)
+  generate_pairwise_qc: true
+  
+  # 샘플 간 거리 계산 방법: "euclidean", "maximum", "manhattan" 등
+  sample_distance_method: "euclidean"
+  
+  # Top DE genes heatmap에 표시할 유전자 개수
+  top_genes_n: 30
+  
+  # MA plot의 y축 범위 (log2 fold change)
+  ma_plot_ylim: [-5, 5]
+  
+  # Heatmap 클러스터링 옵션
+  heatmap_cluster_rows: true
+  heatmap_cluster_cols: true
+
 # -------------------------
 # Annotation Databases (자동 설정)
 # -------------------------

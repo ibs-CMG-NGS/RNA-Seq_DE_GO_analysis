@@ -110,7 +110,7 @@ Snakemake는 `Snakefile`에 정의된 규칙에 따라 `config.yml`을 읽고, �
 
 #### � 논문용 GO Summary Table 자동 생성
 
-파이프라인을 실행하면 각 pairwise 비교마다 **`GO_enrichment_summary.xlsx`** 파일이 자동으로 생성됩니다. 이 파일은:
+파이프라인을 실행하면 각 pairwise 비교마다 **`final_go_results.xlsx`** 파일이 자동으로 생성됩니다. 이 파일은:
 - ✅ 모든 GO enrichment 결과를 하나의 Excel 파일로 통합
 - ✅ Gene set별 (UP/DOWN/TOTAL), Ontology별 (BP/CC/MF) 워크시트 자동 구성
 - ✅ 상위 유의한 GO term 요약 시트 포함
@@ -119,9 +119,9 @@ Snakemake는 `Snakefile`에 정의된 규칙에 따라 `config.yml`을 읽고, �
 - ✅ 논문 supplementary material로 바로 제출 가능
 - ✅ 개별 연구자에게 전달하기 편리
 
-**출력 위치**: `output/{비교이름}/pairwise/{비교군}_vs_{기준군}/GO_enrichment_summary.xlsx`
+**출력 위치**: `output/{비교이름}/pairwise/{비교군}_vs_{기준군}/final_go_results.xlsx`
 
-**예시**: `output/H2O2_Neuron/pairwise/H2O2_vs_Control/GO_enrichment_summary.xlsx`
+**예시**: `output/H2O2_Neuron/pairwise/H2O2_vs_Control/final_go_results.xlsx`
 
 #### � Config 파일 변경하기
 
@@ -360,7 +360,7 @@ export:
 -   **목적** GO enrichment 분석 결과를 논문 supplementary material 형식의 통합 Excel 파일로 생성. 개별 연구자 전달 및 논문 제출용으로 최적화된 형식.
 -   **입력** 모든 `go_enrichment_{up|down|total}_{BP|CC|MF}.csv` 파일
 -   **출력** 
-    - `GO_enrichment_summary.xlsx`: 다중 워크시트로 구성된 Excel 파일
+    - `final_go_results.xlsx`: 다중 워크시트로 구성된 Excel 파일
       - **All_Results**: 모든 GO 결과 통합
       - **UP_regulated**, **DOWN_regulated**, **TOTAL_regulated**: Gene set별 결과
       - **Biological_Process**, **Cellular_Component**, **Molecular_Function**: Ontology별 결과

@@ -104,7 +104,7 @@ for (gene_set in gene_sets_to_plot) {
   
   # --- 7. 플롯 저장 ---
   output_plot_path <- file.path(output_path, paste0("go_barplot_", gene_set, ".png"))
-  ggsave(output_plot_path, plot = go_bar, width = 10, height = 15, dpi = 300) 
+  ggsave(output_plot_path, plot = go_bar, width = 10, height = 15, dpi = 300, bg = "white") 
   
   cat(paste("Successfully generated and saved:", output_plot_path, "\n"))
 }

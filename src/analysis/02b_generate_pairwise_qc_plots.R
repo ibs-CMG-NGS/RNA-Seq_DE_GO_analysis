@@ -111,7 +111,7 @@ p_ma <- ggplot(ma_data, aes(x = log10(baseMean), y = log2FoldChange, color = sig
   )
 
 output_file <- file.path(opt$output_dir, "ma_plot.png")
-ggsave(output_file, plot = p_ma, width = 10, height = 8, dpi = 300)
+ggsave(output_file, plot = p_ma, width = 10, height = 8, dpi = 300, bg = "white")
 cat(paste0("  Saved: ", output_file, "\n"))
 
 # --- 5. Plot 2: P-value Histogram ---
@@ -133,7 +133,7 @@ p_hist <- ggplot(pval_data, aes(x = pvalue)) +
   )
 
 output_file <- file.path(opt$output_dir, "pvalue_histogram.png")
-ggsave(output_file, plot = p_hist, width = 10, height = 6, dpi = 300)
+ggsave(output_file, plot = p_hist, width = 10, height = 6, dpi = 300, bg = "white")
 cat(paste0("  Saved: ", output_file, "\n"))
 
 # --- 6. Plot 3: Adjusted P-value Histogram ---
@@ -158,7 +158,7 @@ p_padj_hist <- ggplot(padj_data, aes(x = padj)) +
   )
 
 output_file <- file.path(opt$output_dir, "padj_histogram.png")
-ggsave(output_file, plot = p_padj_hist, width = 10, height = 6, dpi = 300)
+ggsave(output_file, plot = p_padj_hist, width = 10, height = 6, dpi = 300, bg = "white")
 cat(paste0("  Saved: ", output_file, "\n"))
 
 # --- 7. Plot 4: Top DE Genes Heatmap ---
@@ -176,7 +176,7 @@ top_genes_scaled <- t(scale(t(top_genes_vst)))
 
 # Save heatmap - simplified without annotations to avoid compatibility issues
 output_file <- file.path(opt$output_dir, "top_genes_heatmap.png")
-png(output_file, width = 12, height = 10, units = "in", res = 300)
+png(output_file, width = 12, height = 10, units = "in", res = 300, bg = "white")
 
 pheatmap(top_genes_scaled,
          cluster_rows = if(!is.null(qc_config$heatmap_cluster_rows)) qc_config$heatmap_cluster_rows else TRUE,

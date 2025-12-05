@@ -165,7 +165,7 @@ if (opt$task == "pca") {
     geom_hline(yintercept = -log10(config$de_analysis$padj_cutoff), col = "red", linetype = 'dashed') +
     theme(legend.position = "top")
 
-  ggsave(opt$output_file, plot = volcano_plot, width = 10, height = 8, dpi = 300)
+  ggsave(opt$output_file, plot = volcano_plot, width = 10, height = 8, dpi = 300, bg = "white")
   cat(paste("Volcano plot saved to:", opt$output_file, "\n"))
 
 } else {

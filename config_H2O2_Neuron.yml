@@ -15,7 +15,7 @@ gene_id_type: "ENSEMBL"
 # -------------------------
 count_data_path: "data/raw/H2O2_Neuron/counts_matrix_clean.csv"
 metadata_path: "data/raw/H2O2_Neuron/metadata.csv"
-output_dir: "output/H2O2_Neuron"
+output_dir: "output/H2O2_Neuron_3pairs_new"
 
 # -------------------------
 # Analysis Parameters
@@ -44,6 +44,7 @@ de_analysis:
   pairwise_comparisons:
     - ["H2O2", "Control"]
     - ["GABA", "Control"]
+    - ["H2O2", "GABA"]
 
   # 유의성 기준 (Adjusted p-value)
   padj_cutoff: 0.05

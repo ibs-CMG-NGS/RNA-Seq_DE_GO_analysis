@@ -44,7 +44,7 @@ rule all:
         # Barplot 완료 플래그
         expand(OUTPUT_DIR / "pairwise/{pair}/.go_barplots_done.flag", pair=PAIRS),
         # GO Summary Table (논문용 통합 Excel 파일)
-        expand(OUTPUT_DIR / "pairwise/{pair}/GO_enrichment_summary.xlsx", pair=PAIRS),
+        expand(OUTPUT_DIR / "pairwise/{pair}/final_go_results.xlsx", pair=PAIRS),
         
         # 2b. Pairwise QC Plots (if enabled)
         expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/.pairwise_qc_done.flag", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else [],
@@ -320,7 +320,7 @@ rule generate_go_summary_table:
             ontology=config.get("enrichment", {}).get("go_ontologies", [])
         )
     output:
-        excel = OUTPUT_DIR / "pairwise/{pair}/GO_enrichment_summary.xlsx"
+        excel = OUTPUT_DIR / "pairwise/{pair}/final_go_results.xlsx"
     params:
         compare = lambda wildcards: wildcards.pair.split('_vs_')[0],
         base = lambda wildcards: wildcards.pair.split('_vs_')[1],

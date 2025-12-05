@@ -157,7 +157,7 @@ if (nrow(gene_list) == 0) {
                             ", |log2FC| > ", config$de_analysis$log2fc_cutoff, ")"), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
     
   } else if (opt$task == "kegg") {
     out_csv <- paste0("kegg_enrichment_", gene_set, ".csv")
@@ -185,7 +185,7 @@ if (nrow(gene_list) == 0) {
                             ", |log2FC| > ", config$de_analysis$log2fc_cutoff, ")"), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
   
   cat("Empty output files created successfully.\n")
@@ -314,7 +314,7 @@ if (length(entrez_ids) == 0) {
                             "Gene ID type: ", gene_id_type), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
     
   } else if (opt$task == "kegg") {
     out_csv <- paste0("kegg_enrichment_", gene_set, ".csv")
@@ -341,7 +341,7 @@ if (length(entrez_ids) == 0) {
                             "Gene ID type: ", gene_id_type), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
   
   cat("Empty output files created successfully.\n")
@@ -358,6 +358,17 @@ if (opt$task == "go") {
   # Force garbage collection to free memory before enrichGO
   gc()
   
+  # Limit the number of genes to avoid memory issues
+  # If too many genes, take top genes by significance
+  max_genes_for_go <- 2000
+  if (length(entrez_ids) > max_genes_for_go) {
+    cat(paste("Warning: Too many genes (", length(entrez_ids), "). Limiting to top", max_genes_for_go, "by p-value.\n"))
+    # Sort by adjusted p-value and take top genes
+    top_indices <- order(res_sig$padj)[1:min(max_genes_for_go, nrow(res_sig))]
+    entrez_ids <- entrez_ids[top_indices]
+    cat(paste("Using", length(entrez_ids), "genes for GO enrichment.\n"))
+  }
+  
   # Wrap enrichGO in tryCatch to handle potential errors gracefully
   go_results <- tryCatch({
     # Use simpler universe setting to avoid memory issues
@@ -369,7 +380,9 @@ if (opt$task == "go") {
              pvalueCutoff = config$enrichment$pvalue_cutoff,
              qvalueCutoff = config$enrichment$qvalue_cutoff,
              readable = FALSE,  # Don't convert IDs to symbols (can cause issues)
-             pool = FALSE)      # Don't pool gene sets (more stable)
+             pool = FALSE,      # Don't pool gene sets (more stable)
+             minGSSize = 10,    # Minimum gene set size
+             maxGSSize = 500)   # Maximum gene set size to reduce memory
   }, error = function(e) {
     cat(paste("Error in enrichGO:", e$message, "\n"))
     cat("Returning NULL result.\n")
@@ -399,7 +412,7 @@ if (opt$task == "go") {
       ) +
       theme_minimal(base_size = dp_aes$font_size)
 
-    ggsave(file.path(output_path, out_plot), plot = go_dotplot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot), plot = go_dotplot, width = 10, height = 8, bg = "white")
   } else {
     # No enrichment results - create an empty/placeholder plot
     cat("No GO enrichment results. Creating placeholder plot.\n")
@@ -407,7 +420,7 @@ if (opt$task == "go") {
       annotate("text", x = 0.5, y = 0.5, label = paste("No significant GO enrichment found\nfor", gene_set, "regulated genes -", ont), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
 
 } else if (opt$task == "kegg") {
@@ -437,7 +450,7 @@ if (opt$task == "go") {
       ) +
       theme_minimal(base_size = dp_aes$font_size)
     
-    ggsave(file.path(output_path, out_plot_kegg), plot = kegg_dotplot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot_kegg), plot = kegg_dotplot, width = 10, height = 8, bg = "white")
   } else {
     # No enrichment results - create an empty/placeholder plot
     cat("No KEGG enrichment results. Creating placeholder plot.\n")
@@ -445,7 +458,7 @@ if (opt$task == "go") {
       annotate("text", x = 0.5, y = 0.5, label = paste("No significant KEGG enrichment found\nfor", gene_set, "regulated genes"), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot_kegg), plot = empty_plot, width = 10, height = 8)
+    ggsave(file.path(output_path, out_plot_kegg), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
 } else {
   stop(paste("Invalid task:", opt$task))

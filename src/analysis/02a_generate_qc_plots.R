@@ -88,7 +88,7 @@ colors <- colorRampPalette(rev(brewer.pal(9, "Blues")))(255)
 
 # Save heatmap without annotation to avoid compatibility issues
 output_file <- file.path(opt$output_dir, "sample_distance_heatmap.png")
-png(output_file, width = 10, height = 8, units = "in", res = 300)
+png(output_file, width = 10, height = 8, units = "in", res = 300, bg = "white")
 pheatmap(sampleDistMatrix,
          clustering_distance_rows = sampleDists,
          clustering_distance_cols = sampleDists,
@@ -99,7 +99,7 @@ cat(paste0("  Saved: ", output_file, "\n"))# --- 5. Plot 2: Dispersion Plot ---
 cat("Generating dispersion plot...\n")
 
 output_file <- file.path(opt$output_dir, "dispersion_plot.png")
-png(output_file, width = 10, height = 8, units = "in", res = 300)
+png(output_file, width = 10, height = 8, units = "in", res = 300, bg = "white")
 plotDispEsts(dds, 
              main = "Dispersion Estimates",
              ylab = "Dispersion",
@@ -131,7 +131,7 @@ p <- ggplot(pca_data, aes_string(x = "PC1", y = "PC2", color = intgroup)) +
   coord_fixed()
 
 output_file <- file.path(opt$output_dir, "pca_plot.png")
-ggsave(output_file, plot = p, width = 10, height = 8, dpi = 300)
+ggsave(output_file, plot = p, width = 10, height = 8, dpi = 300, bg = "white")
 cat(paste0("  Saved: ", output_file, "\n"))
 
 # --- 7. Plot 4: Scree Plot (PCA variance explained) ---
@@ -163,7 +163,7 @@ p_scree <- ggplot(scree_data, aes(x = PC, y = Variance)) +
   )
 
 output_file <- file.path(opt$output_dir, "pca_scree_plot.png")
-ggsave(output_file, plot = p_scree, width = 10, height = 6, dpi = 300)
+ggsave(output_file, plot = p_scree, width = 10, height = 6, dpi = 300, bg = "white")
 cat(paste0("  Saved: ", output_file, "\n"))
 
 # --- 8. Plot 5: Count Distribution (boxplot) ---
@@ -193,7 +193,7 @@ p_boxplot <- ggplot(count_data_long, aes(x = Sample, y = Log2Count, fill = Group
   )
 
 output_file <- file.path(opt$output_dir, "count_distribution_boxplot.png")
-ggsave(output_file, plot = p_boxplot, width = 12, height = 8, dpi = 300)
+ggsave(output_file, plot = p_boxplot, width = 12, height = 8, dpi = 300, bg = "white")
 cat(paste0("  Saved: ", output_file, "\n"))
 
 # --- 9. Summary ---

@@ -10,6 +10,7 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(openxlsx)
   library(stringr)
+  library(AnnotationDbi)
 })
 
 # --- 1. Parse arguments ---
@@ -33,6 +34,56 @@ cat("  Generating GO Summary Table for Publication\n")
 cat("==============================================\n")
 cat(paste("Comparison:", compare_group, "vs", base_group, "\n"))
 cat(paste("Output directory:", output_dir, "\n\n"))
+
+# --- 2b. Load organism database for gene symbol conversion ---
+cat(paste("Species:", config$species, "\n"))
+
+if (!"databases" %in% names(config) || !config$species %in% names(config$databases)) {
+  stop("[FATAL] 'databases' section or species entry missing in config.")
+}
+species_info <- config$databases[[config$species]]
+
+if (!"organism_db" %in% names(species_info)) {
+  stop("[FATAL] 'organism_db' key missing under species entry in config.")
+}
+organism_db_name <- species_info$organism_db
+cat(paste("Loading organism database:", organism_db_name, "\n"))
+if (!require(organism_db_name, character.only = TRUE, quietly = TRUE)) {
+  stop(paste("[FATAL] Required organism DB package", organism_db_name, "is not installed."))
+}
+organism_db <- get(organism_db_name)
+cat("  ✓ Organism database loaded successfully\n\n")
+
+# --- 2c. Function to convert Entrez IDs to Gene Symbols ---
+convert_entrez_to_symbols <- function(entrez_ids_string, organism_db) {
+  # entrez_ids_string: e.g., "1234/5678/9012"
+  # Returns: e.g., "GENEA/GENEB/GENEC"
+  
+  if (is.na(entrez_ids_string) || entrez_ids_string == "" || is.null(entrez_ids_string)) {
+    return("")
+  }
+  
+  # Split Entrez IDs
+  entrez_ids <- strsplit(as.character(entrez_ids_string), "/")[[1]]
+  
+  # Convert to symbols
+  symbols <- tryCatch({
+    mapIds(organism_db, 
+           keys = entrez_ids,
+           column = "SYMBOL",
+           keytype = "ENTREZID",
+           multiVals = "first")
+  }, error = function(e) {
+    # If conversion fails, return original IDs
+    return(entrez_ids)
+  })
+  
+  # Replace NAs with original Entrez IDs
+  symbols[is.na(symbols)] <- entrez_ids[is.na(symbols)]
+  
+  # Combine with "/"
+  return(paste(symbols, collapse = "/"))
+}
 
 # --- 3. GO file collection function ---
 collect_go_results <- function(output_dir, gene_set, ontology) {
@@ -91,12 +142,19 @@ if (length(all_go_results) == 0) {
 # --- 5. Data formatting ---
 cat("\nFormatting results for publication...\n")
 
-format_go_table <- function(go_df) {
+format_go_table <- function(go_df, organism_db) {
   # Formats GO enrichment results for publication
   
-  # Select and order columns
+  # Convert Entrez IDs to Gene Symbols
+  cat("  Converting Entrez IDs to Gene Symbols...\n")
+  go_df$geneSymbol <- sapply(go_df$geneID, function(x) {
+    convert_entrez_to_symbols(x, organism_db)
+  })
+  cat("  ✓ Conversion complete\n")
+  
+  # Select and order columns (use dplyr::select explicitly to avoid conflicts with AnnotationDbi)
   formatted <- go_df %>%
-    select(
+    dplyr::select(
       GeneSet,
       Ontology,
       ID,
@@ -107,10 +165,10 @@ format_go_table <- function(go_df) {
       p.adjust,
       qvalue,
       Count,
-      geneID
+      geneSymbol
     ) %>%
     # 컬럼명을 논문 친화적으로 변경
-    rename(
+    dplyr::rename(
       `Gene Set` = GeneSet,
       `GO ID` = ID,
       `GO Term` = Description,
@@ -120,17 +178,17 @@ format_go_table <- function(go_df) {
       `Adjusted P-value` = p.adjust,
       `Q-value` = qvalue,
       `Gene Count` = Count,
-      `Gene IDs` = geneID
+      `Gene Symbols` = geneSymbol
     ) %>%
     # p-value로 정렬 (가장 유의한 것부터)
-    arrange(Ontology, `Gene Set`, `Adjusted P-value`)
+    dplyr::arrange(Ontology, `Gene Set`, `Adjusted P-value`)
   
   return(formatted)
 }
 
 # Combine all results into one dataframe
 combined_go <- bind_rows(all_go_results)
-formatted_go <- format_go_table(combined_go)
+formatted_go <- format_go_table(combined_go, organism_db)
 
 cat(paste("  Total GO terms collected:", nrow(formatted_go), "\n"))
 
@@ -195,7 +253,7 @@ addStyle(wb, "All_Results", header_style, rows = 1, cols = 1:ncol(formatted_go),
 # Apply column-specific styles
 if (nrow(formatted_go) > 0) {
   # Text columns
-  text_cols <- c(1, 2, 3, 4, 5, 6, 11)  # GeneSet, Ontology, GO ID, GO Term, Ratios, Gene IDs
+  text_cols <- c(1, 2, 3, 4, 5, 6, 11)  # GeneSet, Ontology, GO ID, GO Term, Ratios, Gene Symbols
   addStyle(wb, "All_Results", text_style, rows = 2:(nrow(formatted_go) + 1), cols = text_cols, gridExpand = TRUE)
   
   # P-value columns (scientific notation)
@@ -209,12 +267,12 @@ if (nrow(formatted_go) > 0) {
 # Auto-adjust column widths
 setColWidths(wb, "All_Results", cols = 1:ncol(formatted_go), widths = "auto")
 setColWidths(wb, "All_Results", cols = 4, widths = 50)    # GO Term
-setColWidths(wb, "All_Results", cols = 11, widths = 60)   # Gene IDs
+setColWidths(wb, "All_Results", cols = 11, widths = 60)   # Gene Symbols
 freezePane(wb, "All_Results", firstRow = TRUE)
 
 # --- 6b. Gene Set-specific sheets (UP, DOWN, TOTAL) ---
 for (geneset in c("UP", "DOWN", "TOTAL")) {
-  subset_data <- formatted_go %>% filter(`Gene Set` == geneset)
+  subset_data <- formatted_go %>% dplyr::filter(`Gene Set` == geneset)
   
   if (nrow(subset_data) > 0) {
     sheet_name <- paste0(geneset, "_regulated")
@@ -239,7 +297,7 @@ for (geneset in c("UP", "DOWN", "TOTAL")) {
 
 # --- 6c. Ontology-specific sheets (BP, CC, MF) ---
 for (ont in c("BP", "CC", "MF")) {
-  subset_data <- formatted_go %>% filter(Ontology == ont)
+  subset_data <- formatted_go %>% dplyr::filter(Ontology == ont)
   
   if (nrow(subset_data) > 0) {
     ont_fullname <- switch(ont,
@@ -273,10 +331,10 @@ top_n <- 20  # Top 20 from each category
 
 top_terms <- formatted_go %>%
   group_by(`Gene Set`, Ontology) %>%
-  arrange(`Adjusted P-value`) %>%
+  dplyr::arrange(`Adjusted P-value`) %>%
   slice_head(n = top_n) %>%
   ungroup() %>%
-  arrange(Ontology, `Gene Set`, `Adjusted P-value`)
+  dplyr::arrange(Ontology, `Gene Set`, `Adjusted P-value`)
 
 if (nrow(top_terms) > 0) {
   addWorksheet(wb, "Top_Terms")
@@ -324,9 +382,9 @@ metadata <- data.frame(
     config$species,
     config$databases[[config$species]]$organism_db,
     nrow(formatted_go),
-    nrow(formatted_go %>% filter(`Gene Set` == "UP")),
-    nrow(formatted_go %>% filter(`Gene Set` == "DOWN")),
-    nrow(formatted_go %>% filter(`Gene Set` == "TOTAL"))
+    nrow(formatted_go %>% dplyr::filter(`Gene Set` == "UP")),
+    nrow(formatted_go %>% dplyr::filter(`Gene Set` == "DOWN")),
+    nrow(formatted_go %>% dplyr::filter(`Gene Set` == "TOTAL"))
   ),
   stringsAsFactors = FALSE
 )
@@ -341,7 +399,7 @@ setColWidths(wb, "Analysis_Info", cols = 1:2, widths = "auto")
 setColWidths(wb, "Analysis_Info", cols = 1, widths = 30)
 
 # --- 7. Save Excel file ---
-output_file <- file.path(output_dir, "GO_enrichment_summary.xlsx")
+output_file <- file.path(output_dir, "final_go_results.xlsx")
 saveWorkbook(wb, output_file, overwrite = TRUE)
 
 cat("\n==============================================\n")

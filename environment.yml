@@ -5,6 +5,10 @@ channels:
   - defaults
 channel_priority: strict
 dependencies:
+  # Jupyter Kernel 
+  - r-irkernel   
+  - ipykernel      
+
   # R base
   - r-base=4.3
   

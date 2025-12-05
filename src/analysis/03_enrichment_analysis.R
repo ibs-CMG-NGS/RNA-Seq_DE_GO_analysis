@@ -381,8 +381,8 @@ if (opt$task == "go") {
              qvalueCutoff = config$enrichment$qvalue_cutoff,
              readable = FALSE,  # Don't convert IDs to symbols (can cause issues)
              pool = FALSE,      # Don't pool gene sets (more stable)
-             minGSSize = 10,    # Minimum gene set size
-             maxGSSize = 500)   # Maximum gene set size to reduce memory
+             minGSSize = ifelse(is.null(config$enrichment$min_gs_size), 10, config$enrichment$min_gs_size),
+             maxGSSize = ifelse(is.null(config$enrichment$max_gs_size), 500, config$enrichment$max_gs_size))
   }, error = function(e) {
     cat(paste("Error in enrichGO:", e$message, "\n"))
     cat("Returning NULL result.\n")

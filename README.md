@@ -264,6 +264,10 @@ enrichment:
   go_ontologies: ["BP", "CC", "MF"]
   pvalue_cutoff: 0.05
   qvalue_cutoff: 0.2
+  
+  # GO 유전자 세트 크기 제한 (clusterProfiler enrichGO 파라미터)
+  min_gs_size: 10    # 최소 유전자 세트 크기 (너무 작으면 통계적으로 불안정)
+  max_gs_size: 500   # 최대 유전자 세트 크기 (너무 크면 너무 일반적이어서 의미 약함)
 # -------------------------
 # Annotation Databases (자동 설정)
 # -------------------------
@@ -489,7 +493,99 @@ python3 convert_de_to_gsea.py \
 | **장점** | - 높은 신뢰도: 위양성(False Positive) 억제에 효과적이라 가장 보수적이고 안정적인 결과 제공 <br> - 편리한 사용법: 함수들이 직관적이고 체계화되어 있음 <br> - 자동화된 정규화: 샘플 간 크기 인자를 자동 계산 | - 빠른 속도: 대용량 데이터셋에서도 신속한 처리 <br> - 유연성: 복잡한 실험 디자인에 대응 가능 <br> - 메모리 효율: 큰 데이터셋에서도 메모리 사용량이 적음 | - 초고속: 세 방법 중 가장 빠른 속도 <br> - 복잡한 디자인 지원: 다중 요인, 반복 측정 등 복잡한 실험 디자인에 강력함 <br> - 유연한 모델링: 선형 모델 프레임워크로 다양한 통계 분석 가능 |
 | **단점** | - 느린 속도: 샘플 수가 많아지면 느려짐 <br> - 보수적 경향: 실제 유의미한 유전자를 놓칠 수 있음 (위음성) | - 덜 보수적: DESeq2보다 위양성 가능성이 약간 높을 수 있음 <br> - 샘플 수가 적을 때: 분산 추정이 불안정할 수 있음 | - 전처리 필요: voom 변환이 필수적 <br> - 음이항 분포 미사용: RNA-seq의 과분산을 직접 모델링하지 않음 <br> - 극단적 저발현 유전자: 처리가 까다로울 수 있음 |
 | **추천 상황** | 표준 분석, 신뢰도가 중요할 때, 샘플 수가 적을 때 (그룹당 3~5개) | 빠른 분석이 필요하거나 복잡한 실험 디자인, 균형 잡힌 결과를 원할 때 | 매우 큰 데이터셋, 복잡한 실험 디자인(다중 요인, 반복 측정 등), 속도가 중요한 탐색적 분석 |
- 
+
+### 참고문헌
+
+- **DESeq2**: Love, M.I., Huber, W., Anders, S. (2014). Moderated estimation of fold change and dispersion for RNA-seq data with DESeq2. *Genome Biology*, 15:550. [https://doi.org/10.1186/s13059-014-0550-8](https://doi.org/10.1186/s13059-014-0550-8)
+
+- **edgeR**: Robinson, M.D., McCarthy, D.J., Smyth, G.K. (2010). edgeR: a Bioconductor package for differential expression analysis of digital gene expression data. *Bioinformatics*, 26(1):139-140. [https://doi.org/10.1093/bioinformatics/btp616](https://doi.org/10.1093/bioinformatics/btp616)
+
+- **limma**: Ritchie, M.E., Phipson, B., Wu, D., et al. (2015). limma powers differential expression analyses for RNA-sequencing and microarray studies. *Nucleic Acids Research*, 43(7):e47. [https://doi.org/10.1093/nar/gkv007](https://doi.org/10.1093/nar/gkv007)
+
+---
+
+## 🔬 GO/KEGG 분석 알고리즘: clusterProfiler
+
+이 파이프라인은 GO(Gene Ontology) 및 KEGG(Kyoto Encyclopedia of Genes and Genomes) enrichment 분석에 [**clusterProfiler**](https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html) 패키지를 사용합니다.
+
+### clusterProfiler란?
+
+**clusterProfiler**는 생물학적 테마를 찾아내기 위한 R/Bioconductor의 표준 도구로, 차등 발현된 유전자 목록이 특정 생물학적 기능이나 경로에 통계적으로 유의하게 농축되어 있는지 분석합니다.
+
+### 핵심 기능
+
+| 분석 유형 | 함수 | 설명 |
+|:---------|:-----|:-----|
+| **GO Enrichment** | `enrichGO()` | Gene Ontology 용어 농축 분석 <br> - Biological Process (BP): 생물학적 과정 <br> - Cellular Component (CC): 세포 위치 <br> - Molecular Function (MF): 분자 기능 |
+| **KEGG Pathway** | `enrichKEGG()` | KEGG 대사 경로 및 신호전달 경로 농축 분석 |
+| **시각화** | `dotplot()`, `barplot()` | 농축된 기능/경로의 시각화 |
+
+### 분석 방법론: ORA (Over-Representation Analysis)
+
+이 파이프라인은 **ORA(과대표현 분석)** 방식을 사용합니다:
+
+1. **입력**: 통계적으로 유의한 차등 발현 유전자 목록 (예: padj < 0.05, |log2FC| > 1)
+2. **백그라운드**: 분석에 사용된 전체 유전자 세트
+3. **통계 검정**: Fisher's exact test 또는 hypergeometric test
+   - "이 유전자 목록에 특정 GO term이 우연보다 많이 포함되어 있는가?"
+4. **보정**: 다중 검정 보정 (Benjamini-Hochberg FDR)
+
+**예시**:
+```
+전체 유전자: 20,000개
+DEG (Up-regulated): 500개
+특정 GO term에 속하는 전체 유전자: 300개
+DEG 중 해당 GO term에 속하는 유전자: 50개
+
+→ Fisher's exact test로 이 농축이 우연인지 평가
+→ p-value < 0.05, q-value < 0.2이면 유의한 농축으로 판단
+```
+
+### 주요 파라미터 (config.yml)
+
+```yaml
+enrichment:
+  pvalue_cutoff: 0.05      # 1차 필터: 우연일 확률 < 5%
+  qvalue_cutoff: 0.2       # 최종 필터: FDR 보정 후 < 20%
+  min_gs_size: 10          # 최소 유전자 세트 크기
+  max_gs_size: 500         # 최대 유전자 세트 크기
+```
+
+- **pvalue_cutoff**: 농축의 통계적 유의성 1차 판단 기준
+- **qvalue_cutoff**: 다중 검정 보정 후 최종 유의성 기준 (더 엄격)
+- **min_gs_size/max_gs_size**: 너무 작거나 큰 유전자 세트 제외
+  - 너무 작으면(< 10): 통계적으로 불안정
+  - 너무 크면(> 500): 너무 일반적이어서 생물학적 의미가 약함
+
+### clusterProfiler의 장점
+
+✅ **포괄적인 기능**: GO, KEGG, GSEA 등 다양한 분석 지원  
+✅ **최신 데이터베이스**: Annotation 패키지를 통한 자동 업데이트  
+✅ **강력한 시각화**: publication-quality 그래프 자동 생성  
+✅ **표준화된 워크플로우**: RNA-seq 연구의 사실상 표준  
+✅ **다중 종 지원**: Human, Mouse 등 다양한 모델 생물
+
+### ORA vs GSEA 비교
+
+| 특징 | ORA (본 파이프라인) | GSEA |
+|:-----|:-------------------|:-----|
+| **입력** | 선별된 유의 유전자 목록 | 전체 유전자의 발현 순위 |
+| **통계 방법** | Fisher's exact test | Enrichment score + permutation |
+| **장점** | 간단하고 직관적, 빠름 | 약한 신호도 감지 가능 |
+| **단점** | Cutoff에 민감함 | 계산 복잡, 해석 어려움 |
+
+본 파이프라인은 **ORA** 방식을 사용하여 명확하고 해석하기 쉬운 결과를 제공합니다. GSEA 분석이 필요한 경우 `bridge/` 디렉토리의 변환 도구를 사용하여 결과를 GSEA 형식으로 변환할 수 있습니다.
+
+### 참고문헌
+
+- **clusterProfiler**: Yu, G., Wang, L.G., Han, Y., He, Q.Y. (2012). clusterProfiler: an R package for comparing biological themes among gene clusters. *OMICS: A Journal of Integrative Biology*, 16(5):284-287. [https://doi.org/10.1089/omi.2011.0118](https://doi.org/10.1089/omi.2011.0118)
+
+- **clusterProfiler 4.0 (업데이트)**: Wu, T., Hu, E., Xu, S., et al. (2021). clusterProfiler 4.0: A universal enrichment tool for interpreting omics data. *The Innovation*, 2(3):100141. [https://doi.org/10.1016/j.xinn.2021.100141](https://doi.org/10.1016/j.xinn.2021.100141)
+
+- **Gene Ontology**: The Gene Ontology Consortium (2021). The Gene Ontology resource: enriching a GOld mine. *Nucleic Acids Research*, 49(D1):D325-D334. [https://doi.org/10.1093/nar/gkaa1113](https://doi.org/10.1093/nar/gkaa1113)
+
+- **KEGG**: Kanehisa, M., Goto, S. (2000). KEGG: Kyoto Encyclopedia of Genes and Genomes. *Nucleic Acids Research*, 28(1):27-30. [https://doi.org/10.1093/nar/28.1.27](https://doi.org/10.1093/nar/28.1.27)
+
 ---
 
 ## 🧬 Gene ID 타입 설정

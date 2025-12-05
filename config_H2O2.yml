@@ -81,6 +81,10 @@ enrichment:
   go_ontologies: ["BP", "CC", "MF"]
   pvalue_cutoff: 0.05
   qvalue_cutoff: 0.2
+  
+  # GO 유전자 세트 크기 제한 (clusterProfiler enrichGO 파라미터)
+  min_gs_size: 10    # 최소 유전자 세트 크기 (너무 작으면 통계적으로 불안정)
+  max_gs_size: 500   # 최대 유전자 세트 크기 (너무 크면 너무 일반적이어서 의미 약함)
 # -------------------------
 # Annotation Databases (자동 설정)
 # -------------------------

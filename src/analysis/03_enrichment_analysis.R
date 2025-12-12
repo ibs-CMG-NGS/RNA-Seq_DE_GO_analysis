@@ -284,6 +284,19 @@ if (gene_id_type == "ENTREZID") {
              "\nSupported types: ENSEMBL, ENTREZID, SYMBOL"))
 }
 
+# CRITICAL: Remove duplicate Entrez IDs (keep unique only)
+n_before_dedup <- length(entrez_ids)
+entrez_ids <- unique(as.character(entrez_ids))
+n_after_dedup <- length(entrez_ids)
+
+if (n_before_dedup != n_after_dedup) {
+  cat(sprintf("WARNING: Removed %d duplicate Entrez IDs (%d unique genes remain)\n", 
+              n_before_dedup - n_after_dedup, n_after_dedup))
+}
+
+cat(paste("Final number of unique Entrez IDs for enrichment:", length(entrez_ids), "\n"))
+cat(paste("Sample Entrez IDs:", paste(head(entrez_ids, 5), collapse=", "), "\n"))
+
 # Final validation
 if (length(entrez_ids) == 0) { 
   cat("No valid Entrez IDs after conversion. Creating empty output files.\n")
@@ -358,16 +371,43 @@ if (opt$task == "go") {
   # Force garbage collection to free memory before enrichGO
   gc()
   
-  # Limit the number of genes to avoid memory issues
-  # If too many genes, take top genes by significance
-  max_genes_for_go <- 2000
+  # Limit the number of genes to avoid memory issues and crashes
+  # enrichGO can crash with too many genes due to AnnotationDbi memory issues
+  max_genes_for_go <- 5000
   if (length(entrez_ids) > max_genes_for_go) {
-    cat(paste("Warning: Too many genes (", length(entrez_ids), "). Limiting to top", max_genes_for_go, "by p-value.\n"))
-    # Sort by adjusted p-value and take top genes
-    top_indices <- order(res_sig$padj)[1:min(max_genes_for_go, nrow(res_sig))]
-    entrez_ids <- entrez_ids[top_indices]
+    cat(paste("WARNING: Too many genes (", length(entrez_ids), ") for GO enrichment.\n"))
+    cat(paste("Limiting to top", max_genes_for_go, "genes by adjusted p-value to prevent memory issues.\n"))
+    
+    # Get the order of genes by adjusted p-value (from original DE results)
+    # Match entrez_ids back to original gene_list to get p-values
+    original_genes <- rownames(gene_list)
+    
+    # Create a lookup for p-values
+    padj_lookup <- setNames(gene_list$padj, original_genes)
+    
+    # For converted IDs, we need to map back
+    if (gene_id_type != "ENTREZID") {
+      # Map Entrez IDs back to original IDs to get p-values
+      # This is approximate, but sufficient for limiting genes
+      entrez_to_padj <- gene_list$padj[match(names(entrez_ids), original_genes)]
+      entrez_to_padj[is.na(entrez_to_padj)] <- 1  # Set NA p-values to 1
+      
+      # Sort by p-value and take top genes
+      top_indices <- order(entrez_to_padj)[1:min(max_genes_for_go, length(entrez_ids))]
+      entrez_ids <- entrez_ids[top_indices]
+    } else {
+      # For ENTREZID, can match directly
+      entrez_to_padj <- gene_list$padj[match(entrez_ids, original_genes)]
+      entrez_to_padj[is.na(entrez_to_padj)] <- 1
+      
+      top_indices <- order(entrez_to_padj)[1:min(max_genes_for_go, length(entrez_ids))]
+      entrez_ids <- entrez_ids[top_indices]
+    }
+    
     cat(paste("Using", length(entrez_ids), "genes for GO enrichment.\n"))
   }
+  
+  cat(paste("Running enrichGO with", length(entrez_ids), "unique genes...\n"))
   
   # Wrap enrichGO in tryCatch to handle potential errors gracefully
   # Note: Use pvalueCutoff=1 and qvalueCutoff=1 to get ALL results
@@ -441,6 +481,16 @@ if (opt$task == "go") {
         annotate("text", x = 0.5, y = 0.5, 
                 label = sprintf("No significant GO enrichment\n(p.adjust < %.3f)\nfor %s regulated genes - %s", 
                               config$enrichment$pvalue_cutoff, gene_set, ont), 
+               size = 6, hjust = 0.5) +
+        theme_void()
+      ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+    }
+  } else {
+    # No results at all
+    cat("No GO enrichment results. Creating placeholder plot.\n")
+    empty_plot <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+              label = paste("No GO enrichment found\nfor", gene_set, "regulated genes -", ont), 
                size = 6, hjust = 0.5) +
       theme_void()
     ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")

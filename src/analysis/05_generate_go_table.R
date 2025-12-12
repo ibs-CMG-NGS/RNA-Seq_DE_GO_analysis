@@ -413,6 +413,112 @@ if (!is.null(formatted_kegg)) {
 # The old "All_Results" sheet has been removed to avoid confusion
 # Users can refer to individual sheets for each gene set and ontology combination
 
+# --- 6c. Create Analysis Info sheet ---
+cat("  Creating Analysis Info sheet...\n")
+
+# Count GO terms
+go_total <- 0
+go_up <- 0
+go_down <- 0
+go_total_all <- 0
+
+if (!is.null(formatted_go)) {
+  go_up <- formatted_go %>% filter(`Gene Set` == "UP") %>% nrow()
+  go_down <- formatted_go %>% filter(`Gene Set` == "DOWN") %>% nrow()
+  go_total_all <- formatted_go %>% filter(`Gene Set` == "TOTAL") %>% nrow()
+  go_total <- nrow(formatted_go)
+}
+
+# Count KEGG pathways
+kegg_total <- 0
+kegg_up <- 0
+kegg_down <- 0
+kegg_total_all <- 0
+
+if (!is.null(formatted_kegg)) {
+  kegg_up <- formatted_kegg %>% filter(`Gene Set` == "UP") %>% nrow()
+  kegg_down <- formatted_kegg %>% filter(`Gene Set` == "DOWN") %>% nrow()
+  kegg_total_all <- formatted_kegg %>% filter(`Gene Set` == "TOTAL") %>% nrow()
+  kegg_total <- nrow(formatted_kegg)
+}
+
+# Create analysis info data frame
+analysis_info <- data.frame(
+  Parameter = c(
+    "Comparison",
+    "Analysis Date",
+    "DE Method",
+    "P-value Cutoff (padj)",
+    "Log2FC Cutoff",
+    "GO P-value Cutoff",
+    "GO Q-value Cutoff",
+    "Species",
+    "Organism Database",
+    "Total GO Terms Found",
+    "UP-regulated GO Terms",
+    "DOWN-regulated GO Terms",
+    "TOTAL GO Terms",
+    "Total KEGG Pathways Found",
+    "UP-regulated KEGG Pathways",
+    "DOWN-regulated KEGG Pathways",
+    "TOTAL KEGG Pathways"
+  ),
+  Value = c(
+    paste(compare_group, "vs", base_group),
+    format(Sys.Date(), "%Y-%m-%d"),
+    ifelse(is.null(config$de_analysis$method), "DESeq2", config$de_analysis$method),
+    ifelse(is.null(config$de_analysis$padj_cutoff), 0.05, config$de_analysis$padj_cutoff),
+    ifelse(is.null(config$de_analysis$log2fc_cutoff), 0.5, config$de_analysis$log2fc_cutoff),
+    ifelse(is.null(config$enrichment$pvalue_cutoff), 0.05, config$enrichment$pvalue_cutoff),
+    ifelse(is.null(config$enrichment$qvalue_cutoff), 0.25, config$enrichment$qvalue_cutoff),
+    config$species,
+    organism_db_name,
+    go_total,
+    go_up,
+    go_down,
+    go_total_all,
+    kegg_total,
+    kegg_up,
+    kegg_down,
+    kegg_total_all
+  ),
+  stringsAsFactors = FALSE
+)
+
+# Add Analysis Info sheet at the beginning
+addWorksheet(wb, "Analysis_Info", gridLines = TRUE)
+writeData(wb, "Analysis_Info", analysis_info, startRow = 1, startCol = 1)
+
+# Style the Analysis Info sheet
+info_header_style <- createStyle(
+  fontSize = 12,
+  fontColour = "#FFFFFF",
+  halign = "center",
+  fgFill = "#4472C4",
+  border = "TopBottomLeftRight",
+  borderColour = "#000000",
+  textDecoration = "bold"
+)
+
+info_text_style <- createStyle(
+  fontSize = 11,
+  halign = "left",
+  valign = "center",
+  border = "TopBottomLeftRight",
+  borderColour = "#CCCCCC",
+  wrapText = FALSE
+)
+
+# Apply styles
+addStyle(wb, "Analysis_Info", info_header_style, rows = 1, cols = 1:2, gridExpand = TRUE)
+addStyle(wb, "Analysis_Info", info_text_style, rows = 2:(nrow(analysis_info) + 1), cols = 1:2, gridExpand = TRUE)
+
+# Set column widths
+setColWidths(wb, "Analysis_Info", cols = 1, widths = 30)
+setColWidths(wb, "Analysis_Info", cols = 2, widths = 25)
+
+cat("  ✓ Analysis Info sheet created\n")
+
 # --- 7. Save Excel file ---
 output_file <- file.path(output_dir, "final_go_results.xlsx")
 saveWorkbook(wb, output_file, overwrite = TRUE)
@@ -423,6 +529,8 @@ cat("==============================================\n")
 cat(paste("Output file:", output_file, "\n"))
 cat(paste("Total sheets:", length(names(wb)), "\n"))
 cat("\nSheet organization:\n")
+cat("  Analysis Information:\n")
+cat("    • Analysis_Info (parameters and summary statistics)\n\n")
 if (!is.null(formatted_go)) {
   cat("  GO Enrichment sheets:\n")
   for (gs in c("UP", "DOWN", "TOTAL")) {

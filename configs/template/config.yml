@@ -3,19 +3,14 @@
 # -------------------------
 # 분석할 종(species)을 선택합니다: "human" 또는 "mouse"
 # 이 설정에 따라 아래 organism_db와 kegg_code가 자동으로 결정됩니다.
-species: "mouse"
-
-# Gene ID 타입: "ENSEMBL", "ENTREZID", "SYMBOL" 등
-# Raw count 파일의 gene ID 형식을 지정합니다.
-# 생략 시 ID 패턴을 통해 자동 감지됩니다.
-gene_id_type: "ENTREZID"
+species: "human"
 
 # -------------------------
 # File Paths
 # -------------------------
-count_data_path: "data/raw/H2O2/H2O2_raw_count.csv"
-metadata_path: "data/raw/H2O2/H2O2_metadata.csv"
-output_dir: "output/test"
+count_data_path: "data/raw/airway_scaledcounts.csv"
+metadata_path: "data/raw/airway_metadata.csv"
+output_dir: "output"
 
 # -------------------------
 # Analysis Parameters
@@ -44,8 +39,8 @@ de_analysis:
   pairwise_comparisons:
     - ["Acute_1D", "Control"]
     - ["Acute_3D", "Control"]
-    # - ["Chronic_100uM", "Control"]
-    # - ["Chronic_200uM", "Control"]
+    - ["Chronic_100uM", "Control"]
+    - ["Chronic_200uM", "Control"]
     # 예시: 그룹이 더 있다면 아래처럼 추가
     # - ["Drug_High", "Control"]
     # - ["Drug_Low", "Control"]
@@ -56,35 +51,52 @@ de_analysis:
   # Log2 Fold Change 절대값 기준
   log2fc_cutoff: 1.0
 
-  # 재현성 및 세부 조정을 위한 옵션
-  advanced_options:
-    # 1. Pre-filtering: 전체 샘플 합계가 이 값 미만인 유전자는 분석 전 제거 (0이면 미적용, 기본값: 10)
-    prefilter_threshold: 0 
-    
-    # 2. Pairwise 비교 시 정규화 방법 선택
-    # "subset": 각 비교마다 해당 두 그룹의 샘플만으로 정규화 (독립적, 더 보수적)
-    # "global": 전체 샘플을 사용하여 정규화한 후 pairwise 비교 (일관성 있는 정규화)
-    pairwise_normalization: "global"  # 또는 "global"
-    
-    # 3. PCA 변환 시 실험 디자인 고려 여부 (vst/rlog)
-    # TRUE: 디자인 무시 (Unsupervised), FALSE: 디자인 고려 (보통 FALSE가 그룹 간 차이를 더 잘 보여줌)
-    vst_blind: false
-    
-    # 4. PCA 계산에 사용할 상위 변동성 유전자 개수 (기본값: 500)
-    pca_ntop: 500
-
 # enrichment analysis 관련 설정
 enrichment:
   # 분석할 유전자 목록: "total", "up", "down" 중에서 원하는 항목만 남기세요.
   gene_lists: ["total", "up", "down"]
   # 실행할 Gene Ontology 목록: "BP", "CC", "MF" 중에서 원하는 항목만 남기세요.
   go_ontologies: ["BP", "CC", "MF"]
-  pvalue_cutoff: 0.05
-  qvalue_cutoff: 0.2
   
-  # GO 유전자 세트 크기 제한 (clusterProfiler enrichGO 파라미터)
-  min_gs_size: 10    # 최소 유전자 세트 크기 (너무 작으면 통계적으로 불안정)
+  # Enrichment 분석 파라미터
+  # Note: pvalue_cutoff와 qvalue_cutoff는 결과 저장시에는 사용되지 않음 (모든 결과 저장)
+  #       시각화(dotplot, barplot)에서만 필터링에 사용됨
+  pvalue_cutoff: 0.05
+  qvalue_cutoff: 0.25
+  
+  # GO 유전자 세트 크기 제한 (clusterProfiler enrichGO/enrichKEGG 파라미터)
+  min_gs_size: 5     # 최소 유전자 세트 크기 (너무 작으면 통계적으로 불안정)
   max_gs_size: 500   # 최대 유전자 세트 크기 (너무 크면 너무 일반적이어서 의미 약함)
+  
+  # 최소 유전자 개수 필터 (enrichment 결과에서 Count가 이 값 미만인 term 제외)
+  min_gene_count: 2  # Count가 1인 경우 등 의미 없는 결과 제외
+  
+  # 시각화(dotplot, barplot)에 표시할 상위 term 개수
+  plot_top_n: 15     # dotplot과 barplot에 표시할 최대 term 개수
+
+# -------------------------
+# QC Plots Settings
+# -------------------------
+qc_plots:
+  # Global QC plots (모든 샘플 대상)
+  generate_global_qc: true
+  
+  # Pairwise QC plots (각 비교군별)
+  generate_pairwise_qc: true
+  
+  # 샘플 간 거리 계산 방법: "euclidean", "maximum", "manhattan" 등
+  sample_distance_method: "euclidean"
+  
+  # Top DE genes heatmap에 표시할 유전자 개수
+  top_genes_n: 30
+  
+  # MA plot의 y축 범위 (log2 fold change)
+  ma_plot_ylim: [-5, 5]
+  
+  # Heatmap 클러스터링 옵션
+  heatmap_cluster_rows: true
+  heatmap_cluster_cols: true
+
 # -------------------------
 # Annotation Databases (자동 설정)
 # -------------------------
@@ -139,3 +151,4 @@ go_barplot:
 export:
   # true로 설정하면 .xlsx 엑셀 파일도 함께 생성합니다.
   export_to_excel: true
+

@@ -71,8 +71,33 @@ dependencies:
 conda env create -f snakemake_environment.yml
 ```
 
-#### 2. 설정 (`config.yml` 수정)
-`config.yml` 파일을 열어 분석할 데이터 경로(`count_data_path`, `metadata_path`), 사용할 DE 분석 방법(`de_analysis.method`), 종(`species`), 출력 폴더(`output_dir` - 고정된 이름 사용, 예: **"results"**) 등 모든 파라미터를 사용자의 환경에 맞게 수정합니다.
+#### 2. 설정 파일 준비 (`configs/` 폴더)
+
+**새로운 설정 파일 구조:**
+- `configs/template/config.yml`: Git에 추적되는 템플릿 (수정하지 마세요!)
+- `configs/config_*.yml`: 사용자별 설정 파일 (Git에서 자동 무시됨)
+
+a) 템플릿에서 새 설정 파일 생성:
+
+```bash
+cp configs/template/config.yml configs/config_my_experiment.yml
+```
+
+b) `configs/config_my_experiment.yml` 파일을 열어 다음 항목들을 수정:
+- 데이터 경로 (`count_data_path`, `metadata_path`)
+- 출력 폴더 (`output_dir`)
+- DE 분석 방법 (`de_analysis.method`)
+- 비교할 그룹 쌍 (`de_analysis.pairwise_comparisons`)
+- 종 (`species`)
+- 기타 분석 파라미터
+
+c) `Snakefile`의 첫 부분에서 `CONFIG_FILE` 변수를 수정:
+
+```python
+CONFIG_FILE = "configs/config_my_experiment.yml"
+```
+
+자세한 설정 방법은 `configs/README.md`를 참조하세요.
 
 #### 3. 파이프라인 실행
 a) Snakemake 환경 활성화:

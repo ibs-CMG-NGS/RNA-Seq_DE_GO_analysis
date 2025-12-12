@@ -54,5 +54,10 @@ output/*/
 data/*/
 !data/.gitkeep
 
+# Config files - only track template
+configs/*
+!configs/template/
+!configs/template/**
+
 # Snakemake files
 .snakemake/

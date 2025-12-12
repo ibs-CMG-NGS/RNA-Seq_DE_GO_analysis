@@ -370,6 +370,8 @@ if (opt$task == "go") {
   }
   
   # Wrap enrichGO in tryCatch to handle potential errors gracefully
+  # Note: Use pvalueCutoff=1 and qvalueCutoff=1 to get ALL results
+  #       Filtering will be applied later for visualization
   go_results <- tryCatch({
     # Use simpler universe setting to avoid memory issues
     enrichGO(gene = entrez_ids, 
@@ -377,8 +379,8 @@ if (opt$task == "go") {
              keyType = 'ENTREZID', 
              ont = ont,
              pAdjustMethod = "BH", 
-             pvalueCutoff = config$enrichment$pvalue_cutoff,
-             qvalueCutoff = config$enrichment$qvalue_cutoff,
+             pvalueCutoff = 1.0,  # Get all results
+             qvalueCutoff = 1.0,  # Get all results
              readable = FALSE,  # Don't convert IDs to symbols (can cause issues)
              pool = FALSE,      # Don't pool gene sets (more stable)
              minGSSize = ifelse(is.null(config$enrichment$min_gs_size), 10, config$enrichment$min_gs_size),
@@ -389,35 +391,56 @@ if (opt$task == "go") {
     return(NULL)
   })
   
-  # CSV 저장
+  # Apply gene count filter if specified
+  min_gene_count <- ifelse(is.null(config$enrichment$min_gene_count), 1, config$enrichment$min_gene_count)
+  if (!is.null(go_results) && nrow(go_results) > 0) {
+    go_df <- as.data.frame(go_results)
+    original_count <- nrow(go_df)
+    go_df <- go_df %>% filter(Count >= min_gene_count)
+    if (nrow(go_df) < original_count) {
+      cat(sprintf("Filtered out %d terms with Count < %d\n", original_count - nrow(go_df), min_gene_count))
+    }
+    go_results@result <- go_df
+  }
+  
+  # CSV 저장 (모든 결과 저장)
   out_csv <- paste0("go_enrichment_", gene_set, "_", ont, ".csv")
   write.csv(as.data.frame(go_results), file.path(output_path, out_csv))
+  cat(sprintf("Saved %d GO terms to %s\n", nrow(as.data.frame(go_results)), out_csv))
   
+  # Dotplot 생성 (필터링 적용)
   out_plot <- paste0("go_dotplot_", gene_set, "_", ont, ".png")
+  plot_top_n <- ifelse(is.null(config$enrichment$plot_top_n), dp_aes$show_n_categories, config$enrichment$plot_top_n)
   
   if (!is.null(go_results) && nrow(go_results) > 0) {
+    # Filter for visualization: apply p-value cutoff and top N
     plot_df <- as.data.frame(go_results) %>%
+      filter(p.adjust < config$enrichment$pvalue_cutoff) %>%
       mutate(GeneRatio = sapply(GeneRatio, function(x) eval(parse(text=x)))) %>%
       arrange(p.adjust) %>%
-      head(dp_aes$show_n_categories) %>%
+      head(plot_top_n) %>%
       mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]]))
     
-    go_dotplot <- ggplot(plot_df, aes_string(x = dp_aes$x_axis_variable, y = "Description", 
-                                             color = "-log10(p.adjust)", size = "Count")) +
-      geom_point() +
-      scale_color_gradient(low = dp_aes$high_color, high = dp_aes$low_color) +
-      labs(
-        title = paste("GO Enrichment -", ont, "(", gene_set, "regulated)"),
-        x = dp_aes$x_axis_variable, y = "GO Term", color = "-log10(p.adjust)", size = "Gene Count"
-      ) +
-      theme_minimal(base_size = dp_aes$font_size)
+    if (nrow(plot_df) > 0) {
+      go_dotplot <- ggplot(plot_df, aes_string(x = dp_aes$x_axis_variable, y = "Description", 
+                                               color = "-log10(p.adjust)", size = "Count")) +
+        geom_point() +
+        scale_color_gradient(low = dp_aes$high_color, high = dp_aes$low_color) +
+        labs(
+          title = paste("GO Enrichment -", ont, "(", gene_set, "regulated)"),
+          x = dp_aes$x_axis_variable, y = "GO Term", color = "-log10(p.adjust)", size = "Gene Count"
+        ) +
+        theme_minimal(base_size = dp_aes$font_size)
 
-    ggsave(file.path(output_path, out_plot), plot = go_dotplot, width = 10, height = 8, bg = "white")
-  } else {
-    # No enrichment results - create an empty/placeholder plot
-    cat("No GO enrichment results. Creating placeholder plot.\n")
-    empty_plot <- ggplot() + 
-      annotate("text", x = 0.5, y = 0.5, label = paste("No significant GO enrichment found\nfor", gene_set, "regulated genes -", ont), 
+      ggsave(file.path(output_path, out_plot), plot = go_dotplot, width = 10, height = 8, bg = "white")
+      cat(sprintf("Saved dotplot with %d terms to %s\n", nrow(plot_df), out_plot))
+    } else {
+      cat(sprintf("No terms pass p.adjust < %.3f threshold for plotting\n", config$enrichment$pvalue_cutoff))
+      # Create placeholder plot
+      empty_plot <- ggplot() + 
+        annotate("text", x = 0.5, y = 0.5, 
+                label = sprintf("No significant GO enrichment\n(p.adjust < %.3f)\nfor %s regulated genes - %s", 
+                              config$enrichment$pvalue_cutoff, gene_set, ont), 
                size = 6, hjust = 0.5) +
       theme_void()
     ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
@@ -426,36 +449,73 @@ if (opt$task == "go") {
 } else if (opt$task == "kegg") {
   # --- KEGG Pathway Analysis ---
   cat(paste("Running KEGG analysis for", gene_set, "genes\n"))
-  kegg_results <- enrichKEGG(gene = entrez_ids, organism = kegg_organism, pvalueCutoff = config$enrichment$pvalue_cutoff)
   
+  # Use pvalueCutoff=1 to get ALL results
+  kegg_results <- enrichKEGG(gene = entrez_ids, organism = kegg_organism, 
+                            pvalueCutoff = 1.0,  # Get all results
+                            minGSSize = ifelse(is.null(config$enrichment$min_gs_size), 10, config$enrichment$min_gs_size),
+                            maxGSSize = ifelse(is.null(config$enrichment$max_gs_size), 500, config$enrichment$max_gs_size))
+  
+  # Apply gene count filter if specified
+  min_gene_count <- ifelse(is.null(config$enrichment$min_gene_count), 1, config$enrichment$min_gene_count)
+  if (!is.null(kegg_results) && nrow(kegg_results) > 0) {
+    kegg_df <- as.data.frame(kegg_results)
+    original_count <- nrow(kegg_df)
+    kegg_df <- kegg_df %>% filter(Count >= min_gene_count)
+    if (nrow(kegg_df) < original_count) {
+      cat(sprintf("Filtered out %d pathways with Count < %d\n", original_count - nrow(kegg_df), min_gene_count))
+    }
+    kegg_results@result <- kegg_df
+  }
+  
+  # CSV 저장 (모든 결과 저장)
   out_csv_kegg <- paste0("kegg_enrichment_", gene_set, ".csv")
   write.csv(as.data.frame(kegg_results), file.path(output_path, out_csv_kegg))
+  cat(sprintf("Saved %d KEGG pathways to %s\n", nrow(as.data.frame(kegg_results)), out_csv_kegg))
   
+  # Dotplot 생성 (필터링 적용)
   out_plot_kegg <- paste0("kegg_dotplot_", gene_set, ".png")
+  plot_top_n <- ifelse(is.null(config$enrichment$plot_top_n), dp_aes$show_n_categories, config$enrichment$plot_top_n)
   
   if (!is.null(kegg_results) && nrow(kegg_results) > 0) {
+    # Filter for visualization
     plot_df_kegg <- as.data.frame(kegg_results) %>%
+      filter(p.adjust < config$enrichment$pvalue_cutoff) %>%
       mutate(GeneRatio = sapply(GeneRatio, function(x) eval(parse(text=x)))) %>%
       arrange(p.adjust) %>%
-      head(dp_aes$show_n_categories) %>%
+      head(plot_top_n) %>%
       mutate(Description = fct_reorder(Description, .data[[dp_aes$x_axis_variable]]))
-      
-    kegg_dotplot <- ggplot(plot_df_kegg, aes_string(x = dp_aes$x_axis_variable, y = "Description", 
-                                                 color = "-log10(p.adjust)", size = "Count")) +
-      geom_point() +
-      scale_color_gradient(low = dp_aes$high_color, high = dp_aes$low_color) +
-      labs(
-        title = paste("KEGG Pathways (", gene_set, "regulated)"),
-        x = dp_aes$x_axis_variable, y = "KEGG Pathway", color = "-log10(p.adjust)", size = "Gene Count"
-      ) +
-      theme_minimal(base_size = dp_aes$font_size)
     
-    ggsave(file.path(output_path, out_plot_kegg), plot = kegg_dotplot, width = 10, height = 8, bg = "white")
+    if (nrow(plot_df_kegg) > 0) {
+      kegg_dotplot <- ggplot(plot_df_kegg, aes_string(x = dp_aes$x_axis_variable, y = "Description", 
+                                                   color = "-log10(p.adjust)", size = "Count")) +
+        geom_point() +
+        scale_color_gradient(low = dp_aes$high_color, high = dp_aes$low_color) +
+        labs(
+          title = paste("KEGG Pathways (", gene_set, "regulated)"),
+          x = dp_aes$x_axis_variable, y = "KEGG Pathway", color = "-log10(p.adjust)", size = "Gene Count"
+        ) +
+        theme_minimal(base_size = dp_aes$font_size)
+      
+      ggsave(file.path(output_path, out_plot_kegg), plot = kegg_dotplot, width = 10, height = 8, bg = "white")
+      cat(sprintf("Saved KEGG dotplot with %d pathways to %s\n", nrow(plot_df_kegg), out_plot_kegg))
+    } else {
+      cat(sprintf("No pathways pass p.adjust < %.3f threshold for plotting\n", config$enrichment$pvalue_cutoff))
+      # Create placeholder plot
+      empty_plot <- ggplot() + 
+        annotate("text", x = 0.5, y = 0.5, 
+                label = sprintf("No significant KEGG enrichment\n(p.adjust < %.3f)\nfor %s regulated genes", 
+                              config$enrichment$pvalue_cutoff, gene_set), 
+                 size = 6, hjust = 0.5) +
+        theme_void()
+      ggsave(file.path(output_path, out_plot_kegg), plot = empty_plot, width = 10, height = 8, bg = "white")
+    }
   } else {
-    # No enrichment results - create an empty/placeholder plot
+    # No results at all
     cat("No KEGG enrichment results. Creating placeholder plot.\n")
     empty_plot <- ggplot() + 
-      annotate("text", x = 0.5, y = 0.5, label = paste("No significant KEGG enrichment found\nfor", gene_set, "regulated genes"), 
+      annotate("text", x = 0.5, y = 0.5, 
+              label = paste("No KEGG enrichment found\nfor", gene_set, "regulated genes"), 
                size = 6, hjust = 0.5) +
       theme_void()
     ggsave(file.path(output_path, out_plot_kegg), plot = empty_plot, width = 10, height = 8, bg = "white")

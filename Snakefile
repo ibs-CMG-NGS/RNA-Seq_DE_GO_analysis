@@ -3,7 +3,9 @@ from pathlib import Path
 
 # --- 1. Load Configuration ---
 # ★ Config 파일 경로 (여기서만 수정하면 전체 파이프라인에 적용됨)
-CONFIG_FILE = "config_H2O2_Neuron.yml"
+# Template: configs/template/config.yml
+# User configs: configs/config_ACAS.yml, configs/config_H2O2.yml, etc.
+CONFIG_FILE = "configs/config_ACAS.yml"
 
 configfile: CONFIG_FILE
 
@@ -24,17 +26,17 @@ PAIRS = get_pairs(config)
 # --- 3. Target Rule: Define all final outputs ---
 rule all:
     input:
-        # 1a. Omnibus test result (if requested)
-        expand(OUTPUT_DIR / "omnibus_test_results.csv", allow_missing=True) if config["de_analysis"]["run_omnibus_test"] else [],
+        # 1a. Omnibus test result (if requested and count data available)
+        expand(OUTPUT_DIR / "omnibus_test_results.csv", allow_missing=True) if (config.get("de_analysis", {}).get("run_omnibus_test", False) and config.get("count_data_path")) else [],
         
-        # 1b. Global PCA Plot (runs once)
-        OUTPUT_DIR / "global_pca_plot.png",
+        # 1b. Global PCA Plot (if count data available)
+        ([OUTPUT_DIR / "global_pca_plot.png"] if config.get("count_data_path") else []),
 
-        # 1c. Global QC Plots (if enabled)
-        expand(OUTPUT_DIR / "qc_plots/.global_qc_done.flag", allow_missing=True) if config.get("qc_plots", {}).get("generate_global_qc", False) else [],
+        # 1c. Global QC Plots (if enabled and count data available)
+        expand(OUTPUT_DIR / "qc_plots/.global_qc_done.flag", allow_missing=True) if (config.get("qc_plots", {}).get("generate_global_qc", False) and config.get("count_data_path")) else [],
         
-        # 1d. Global QC Report (if enabled)
-        expand(OUTPUT_DIR / "qc_plots/global_qc_report.html", allow_missing=True) if config.get("qc_plots", {}).get("generate_global_qc", False) else [],
+        # 1d. Global QC Report (if enabled and count data available)
+        expand(OUTPUT_DIR / "qc_plots/global_qc_report.html", allow_missing=True) if (config.get("qc_plots", {}).get("generate_global_qc", False) and config.get("count_data_path")) else [],
 
         # 2. All Pairwise results
         expand(OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv", pair=PAIRS),
@@ -59,8 +61,8 @@ rule run_omnibus_test:
     input:
         script = "src/analysis/01a_run_omnibus_test.R",
         config_file = CONFIG_FILE,
-        counts = config["count_data_path"],
-        meta = config["metadata_path"]
+        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+        meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
     output:
         csv = OUTPUT_DIR / "omnibus_test_results.csv"
     log:
@@ -71,12 +73,13 @@ rule run_omnibus_test:
         "Rscript {input.script} {input.config_file} {output.csv} > {log} 2>&1"
 
 # Rule 1b: Run Pairwise DE
+# Note: If final_de_results.csv already exists, Snakemake will skip this rule
 rule run_pairwise_de:
     input:
         script = "src/analysis/01b_run_pairwise_de.R",
         config_file = CONFIG_FILE,
-        counts = config["count_data_path"],
-        meta = config["metadata_path"]
+        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+        meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
     output:
         csv = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv",
         config_copy = OUTPUT_DIR / "pairwise/{pair}/config_used.yml"
@@ -96,8 +99,8 @@ rule generate_global_pca:
     input:
         script = "src/analysis/02_generate_plots.R",
         config_file = CONFIG_FILE,
-        counts = config["count_data_path"],
-        meta = config["metadata_path"]
+        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+        meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
     output:
         pca = OUTPUT_DIR / "global_pca_plot.png"
     log:
@@ -112,8 +115,8 @@ rule generate_global_qc_plots:
     input:
         script = "src/analysis/02a_generate_qc_plots.R",
         config_file = CONFIG_FILE,
-        counts = config["count_data_path"],
-        meta = config["metadata_path"]
+        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+        meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
     output:
         flag = touch(OUTPUT_DIR / "qc_plots/.global_qc_done.flag"),
         sample_dist = OUTPUT_DIR / "qc_plots/sample_distance_heatmap.png",

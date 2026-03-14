@@ -5,7 +5,7 @@ from pathlib import Path
 # ★ Config 파일 경로 (여기서만 수정하면 전체 파이프라인에 적용됨)
 # Template: configs/template/config.yml
 # User configs: configs/config_ACAS.yml, configs/config_H2O2.yml, etc.
-CONFIG_FILE = "configs/config_ACAS.yml"
+CONFIG_FILE = workflow.configfiles[0] if workflow.configfiles else "configs/config_ACAS.yml"
 
 configfile: CONFIG_FILE
 
@@ -52,7 +52,13 @@ rule all:
         expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/.pairwise_qc_done.flag", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else [],
         
         # 2c. Pairwise QC Reports (if enabled)
-        expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/pairwise_qc_report.html", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else []
+        expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/pairwise_qc_report.html", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else [],
+
+        # 3. cmg-seqviewer export (강력 권장, 선택 사항 — export.seqviewer: true 로 활성화)
+        [OUTPUT_DIR / "seqviewer/.seqviewer_done.flag"] if config.get("export", {}).get("seqviewer", False) else [],
+
+        # 4. Summary report (모든 pairwise 완료 후 자동 생성)
+        OUTPUT_DIR / "summary_report.html"
 
 # --- 4. Analysis Rules ---
 
@@ -82,6 +88,7 @@ rule run_pairwise_de:
         meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
     output:
         csv = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv",
+        xlsx = OUTPUT_DIR / "pairwise/{pair}/final_de_results.xlsx",
         config_copy = OUTPUT_DIR / "pairwise/{pair}/config_used.yml"
     params:
         compare = lambda wildcards: wildcards.pair.split('_vs_')[0],
@@ -334,3 +341,62 @@ rule generate_go_summary_table:
         R_ENV_NAME
     shell:
         "Rscript {input.script} {input.config_file} {params.compare} {params.base} {params.output_dir} > {log} 2>&1"
+
+
+# Rule 6: cmg-seqviewer용 parquet + staging JSON 생성 (per pair)
+rule export_seqviewer_pair:
+    input:
+        script = "src/analysis/06_export_seqviewer.R",
+        config_file = CONFIG_FILE,
+        de_xlsx = OUTPUT_DIR / "pairwise/{pair}/final_de_results.xlsx",
+        enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag",
+        go_xlsx = OUTPUT_DIR / "pairwise/{pair}/final_go_results.xlsx"
+    output:
+        flag = touch(OUTPUT_DIR / "pairwise/{pair}/.seqviewer_export_done.flag")
+    params:
+        compare = lambda wildcards: wildcards.pair.split('_vs_')[0],
+        base = lambda wildcards: wildcards.pair.split('_vs_')[1],
+        pair_output_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair)
+    log:
+        OUTPUT_DIR / "pairwise/{pair}/logs/06_export_seqviewer.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} {params.compare} {params.base} {params.pair_output_dir} > {log} 2>&1"
+
+
+# Rule 8: Summary Report — 모든 pairwise 완료 후 통합 HTML 리포트 생성
+rule generate_summary_report:
+    input:
+        script      = "src/analysis/07_generate_summary_report.R",
+        config_file = CONFIG_FILE,
+        de_results  = expand(OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv", pair=PAIRS),
+        enrich_done = expand(OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag", pair=PAIRS),
+        volcanos    = expand(OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png", pair=PAIRS),
+    output:
+        html = OUTPUT_DIR / "summary_report.html"
+    params:
+        output_dir = str(OUTPUT_DIR)
+    log:
+        OUTPUT_DIR / "logs/07_generate_summary_report.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --output-dir {params.output_dir} --output {output.html} > {log} 2>&1"
+
+
+# Rule 7: 모든 pair의 staging JSON을 합쳐 metadata.json 생성
+rule aggregate_seqviewer:
+    input:
+        script = "src/analysis/06b_aggregate_seqviewer.R",
+        flags = expand(OUTPUT_DIR / "pairwise/{pair}/.seqviewer_export_done.flag", pair=PAIRS)
+    output:
+        flag = touch(OUTPUT_DIR / "seqviewer/.seqviewer_done.flag")
+    params:
+        seqviewer_dir = str(OUTPUT_DIR / "seqviewer")
+    log:
+        OUTPUT_DIR / "logs/06b_aggregate_seqviewer.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {params.seqviewer_dir} > {log} 2>&1"

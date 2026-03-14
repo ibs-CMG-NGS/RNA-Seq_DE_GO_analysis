@@ -49,8 +49,10 @@ for (gene_set in gene_sets_to_plot) {
     input_csv <- file.path(output_path, paste0("go_enrichment_", gene_set, "_", ont, ".csv"))
     
     if (file.exists(input_csv)) {
+      raw_content <- trimws(paste(readLines(input_csv, warn = FALSE), collapse = ""))
+      if (raw_content == "" || raw_content == '""') next
       go_df <- read.csv(input_csv, stringsAsFactors = FALSE)
-      if (nrow(go_df) > 0) { 
+      if (nrow(go_df) > 0) {
         if (!"ONTOLOGY" %in% names(go_df)) {
           go_df$ONTOLOGY <- ont
         }

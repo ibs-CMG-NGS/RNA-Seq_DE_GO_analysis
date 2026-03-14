@@ -5,6 +5,11 @@
 # 이 설정에 따라 아래 organism_db와 kegg_code가 자동으로 결정됩니다.
 species: "human"
 
+# 입력 데이터의 Gene ID 형식을 지정합니다: "ENSEMBL", "ENTREZID", "SYMBOL"
+# 생략 시 첫 번째 gene ID 패턴으로 자동 감지합니다.
+# featureCounts 출력(ENSEMBL)을 그대로 사용하는 경우: "ENSEMBL"
+gene_id_type: "ENSEMBL"
+
 # -------------------------
 # File Paths
 # -------------------------
@@ -50,6 +55,26 @@ de_analysis:
   padj_cutoff: 0.05
   # Log2 Fold Change 절대값 기준
   log2fc_cutoff: 1.0
+
+  advanced_options:
+    # 1. Pre-filtering: 각 샘플에서 count >= min_count 인 샘플이 min_samples개 이상인 유전자만 유지
+    # → 샘플 수에 무관한 기준. rowSums 고정 기준보다 생물학적으로 의미 있음.
+    # min_samples: "auto" → 비교 그룹 중 가장 작은 그룹 크기를 자동으로 사용
+    prefilter_min_count: 1
+    prefilter_min_samples: "auto"
+
+    # 2. Pairwise 비교 시 정규화 방법 선택
+    # "subset": 각 비교마다 해당 두 그룹의 샘플만으로 정규화 (독립적, 더 보수적)
+    # "global": 전체 샘플을 사용하여 정규화한 후 pairwise 비교 (일관성 있는 정규화)
+    pairwise_normalization: "global"
+
+    # 3. PCA/VST 변환 시 실험 디자인 고려 여부 (DESeq2 vst())
+    # false: 디자인 고려 (Supervised) → 그룹 간 차이를 더 잘 보여줌 (권장)
+    # true: 디자인 무시 (Unsupervised)
+    vst_blind: false
+
+    # 4. PCA 계산에 사용할 상위 변동성 유전자 개수
+    pca_ntop: 500
 
 # enrichment analysis 관련 설정
 enrichment:
@@ -151,4 +176,19 @@ go_barplot:
 export:
   # true로 설정하면 .xlsx 엑셀 파일도 함께 생성합니다.
   export_to_excel: true
+
+  # ──────────────────────────────────────────────────────────────────
+  # cmg-seqviewer 내보내기 (강력 권장, 선택 사항)
+  #
+  # true로 설정하면 파이프라인 완료 후 아래 파일을 자동 생성합니다:
+  #   output/{project_id}/seqviewer/
+  #     ├── metadata.json          ← 앱 자동 인식용 메타데이터
+  #     └── datasets/
+  #         ├── *_de_*.parquet     ← DE 결과 (표준 컬럼명)
+  #         └── *_go_*.parquet     ← GO/KEGG 결과 (표준 컬럼명)
+  #
+  # 생성된 파일을 앱의 data/ 폴더에 복사하면 재시작 시 자동 인식됩니다.
+  # 자세한 내용: pipeline-integration.md
+  # ──────────────────────────────────────────────────────────────────
+  seqviewer: false
 

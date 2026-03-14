@@ -12,6 +12,8 @@ suppressPackageStartupMessages({
   library(openxlsx)
 })
 
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
 # --- 1. 인자 파싱 ---
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 4) {
@@ -71,12 +73,18 @@ if (norm_strategy == "global") {
   cat(paste("Aligned", ncol(counts), "samples between count data and metadata\n"))
   
   # Pre-filtering on full dataset
-  prefilter_thres <- config$de_analysis$advanced_options$prefilter_threshold
-  if (!is.null(prefilter_thres) && prefilter_thres > 0) {
-    keep_genes <- rowSums(counts) >= prefilter_thres
-    counts <- counts[keep_genes, ]
-    cat(paste("Pre-filtering (global): Removed", sum(!keep_genes), "low count genes (threshold <", prefilter_thres, ")\n"))
+  # 기준: 샘플당 count >= min_count 인 샘플이 min_samples개 이상 (샘플 수에 독립적)
+  pf_min_count       <- config$de_analysis$advanced_options$prefilter_min_count %||% 1
+  pf_min_samples_cfg <- config$de_analysis$advanced_options$prefilter_min_samples %||% "auto"
+  if (identical(pf_min_samples_cfg, "auto")) {
+    pf_min_samples <- as.integer(min(table(meta[[group_var]])))
+  } else {
+    pf_min_samples <- as.integer(pf_min_samples_cfg)
   }
+  keep_genes <- rowSums(counts >= pf_min_count) >= pf_min_samples
+  counts     <- counts[keep_genes, ]
+  cat(paste("Pre-filtering (global): kept", sum(keep_genes), "of", length(keep_genes),
+            "genes (count >=", pf_min_count, "in >=", pf_min_samples, "samples)\n"))
   
   # Factor 설정 (전체 데이터)
   meta[[group_var]] <- as.factor(meta[[group_var]])
@@ -105,12 +113,18 @@ if (norm_strategy == "global") {
   counts_subset <- counts_subset[, rownames(meta_subset)]
   
   # Pre-filtering (subset data)
-  prefilter_thres <- config$de_analysis$advanced_options$prefilter_threshold
-  if (!is.null(prefilter_thres) && prefilter_thres > 0) {
-    keep_genes <- rowSums(counts_subset) >= prefilter_thres
-    counts_subset <- counts_subset[keep_genes, ]
-    cat(paste("Pre-filtering (subset): Removed", sum(!keep_genes), "low count genes (threshold <", prefilter_thres, ")\n"))
+  # 기준: 샘플당 count >= min_count 인 샘플이 min_samples개 이상 (샘플 수에 독립적)
+  pf_min_count       <- config$de_analysis$advanced_options$prefilter_min_count %||% 1
+  pf_min_samples_cfg <- config$de_analysis$advanced_options$prefilter_min_samples %||% "auto"
+  if (identical(pf_min_samples_cfg, "auto")) {
+    pf_min_samples <- as.integer(min(table(meta_subset[[group_var]])))
+  } else {
+    pf_min_samples <- as.integer(pf_min_samples_cfg)
   }
+  keep_genes    <- rowSums(counts_subset >= pf_min_count) >= pf_min_samples
+  counts_subset <- counts_subset[keep_genes, ]
+  cat(paste("Pre-filtering (subset): kept", sum(keep_genes), "of", length(keep_genes),
+            "genes (count >=", pf_min_count, "in >=", pf_min_samples, "samples)\n"))
   
   # Factor 레벨 재설정
   meta_subset[[group_var]] <- factor(meta_subset[[group_var]], levels = c(base_group, compare_group))
@@ -316,6 +330,15 @@ if (is_ensembl) {
     res_df$symbol <- rownames(res_df)
 }
 
+# NA symbol을 gene_id로 대체
+if ("symbol" %in% colnames(res_df)) {
+  na_count <- sum(is.na(res_df$symbol))
+  if (na_count > 0) {
+    res_df$symbol[is.na(res_df$symbol)] <- rownames(res_df)[is.na(res_df$symbol)]
+    cat(paste("Symbol fallback: filled", na_count, "unmapped gene(s) with gene_id\n"))
+  }
+}
+
 # 컬럼 정리
 if ("symbol" %in% colnames(res_df)) {
     standard_cols <- c("symbol", "baseMean", "log2FoldChange", "pvalue", "padj")
@@ -373,20 +396,23 @@ if (isTRUE(config$export$export_to_excel)) {
   # Create a workbook with multiple sheets
   wb <- createWorkbook()
   
+  # Helper: prepend rownames as gene_id column
+  with_gene_id <- function(df) cbind(gene_id = rownames(df), df)
+
   # Sheet 1: DE results with normalized counts
   addWorksheet(wb, "DE_Results")
-  writeData(wb, "DE_Results", final_results_df, rowNames = TRUE)
-  
+  writeData(wb, "DE_Results", with_gene_id(final_results_df), rowNames = FALSE)
+
   # Sheet 2: Normalized counts only (ordered)
   addWorksheet(wb, "Normalized_Counts")
-  writeData(wb, "Normalized_Counts", normalized_counts_ordered, rowNames = TRUE)
-  
+  writeData(wb, "Normalized_Counts", with_gene_id(normalized_counts_ordered), rowNames = FALSE)
+
   # Sheet 3: Significant genes only
-  sig_genes <- final_results_df[!is.na(final_results_df$padj) & 
-                                 final_results_df$padj < config$de_analysis$padj_cutoff & 
+  sig_genes <- final_results_df[!is.na(final_results_df$padj) &
+                                 final_results_df$padj < config$de_analysis$padj_cutoff &
                                  abs(final_results_df$log2FoldChange) > config$de_analysis$log2fc_cutoff, ]
   addWorksheet(wb, "Significant_Genes")
-  writeData(wb, "Significant_Genes", sig_genes, rowNames = TRUE)
+  writeData(wb, "Significant_Genes", with_gene_id(sig_genes), rowNames = FALSE)
   
   saveWorkbook(wb, output_xlsx_path, overwrite = TRUE)
   cat(paste("Excel file with multiple sheets saved to:", output_xlsx_path, "\n"))

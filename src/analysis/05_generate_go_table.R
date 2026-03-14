@@ -98,9 +98,16 @@ collect_go_results <- function(output_dir, gene_set, ontology) {
     return(NULL)
   }
   
+  # Skip if file contains only empty/quoted string (no real data)
+  raw_content <- trimws(paste(readLines(file_path, warn = FALSE), collapse = ""))
+  if (raw_content == "" || raw_content == '""') {
+    cat(paste("  [INFO] Empty results for", gene_set, ontology, "\n"))
+    return(NULL)
+  }
+
   # Read GO enrichment results
   go_res <- read.csv(file_path, stringsAsFactors = FALSE)
-  
+
   # Skip if empty
   if (nrow(go_res) == 0) {
     cat(paste("  [INFO] Empty results for", gene_set, ontology, "\n"))
@@ -127,7 +134,14 @@ collect_kegg_results <- function(output_dir, gene_set) {
     cat(paste("  [WARNING] File not found:", basename(file_path), "\n"))
     return(NULL)
   }
-  
+
+  # Skip if file contains only empty/quoted string (no real data)
+  raw_content <- trimws(paste(readLines(file_path, warn = FALSE), collapse = ""))
+  if (raw_content == "" || raw_content == '""') {
+    cat(paste("  [INFO] Empty KEGG results for", gene_set, "\n"))
+    return(NULL)
+  }
+
   # Read KEGG enrichment results
   kegg_res <- read.csv(file_path, stringsAsFactors = FALSE)
   

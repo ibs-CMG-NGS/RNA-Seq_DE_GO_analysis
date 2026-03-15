@@ -77,8 +77,13 @@ for (pair in PAIRS) {
   # Identify padj column (DESeq2: padj, edgeR: FDR, limma: adj.P.Val)
   padj_col <- intersect(c("padj", "FDR", "adj.P.Val"), colnames(de))[1]
   lfc_col  <- intersect(c("log2FoldChange", "logFC"), colnames(de))[1]
-  gene_col <- intersect(c("gene", "gene_id", "Gene", "GeneID"), colnames(de))[1]
-  if (is.na(gene_col)) gene_col <- colnames(de)[1]   # fallback: first column
+  gene_col <- intersect(c("symbol", "gene_symbol", "SYMBOL",
+                           "gene", "Gene", "gene_id", "GeneID"), colnames(de))[1]
+  # If no named gene column found, use the first non-empty column name (skip "" row-name col)
+  if (is.na(gene_col)) {
+    non_empty <- colnames(de)[nchar(colnames(de)) > 0]
+    gene_col  <- if (length(non_empty) > 0) non_empty[1] else colnames(de)[1]
+  }
 
   sig <- de[!is.na(de[[padj_col]]) & de[[padj_col]] < padj_cut &
               abs(de[[lfc_col]]) > lfc_cut, ]

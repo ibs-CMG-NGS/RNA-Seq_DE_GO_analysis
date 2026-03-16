@@ -58,7 +58,10 @@ rule all:
         [OUTPUT_DIR / "seqviewer/.seqviewer_done.flag"] if config.get("export", {}).get("seqviewer", False) else [],
 
         # 4. Summary report (모든 pairwise 완료 후 자동 생성)
-        OUTPUT_DIR / "summary_report.html"
+        OUTPUT_DIR / "summary_report.html",
+
+        # 5. Methods section HTML
+        OUTPUT_DIR / "methods_section.html"
 
 # --- 4. Analysis Rules ---
 
@@ -400,3 +403,21 @@ rule aggregate_seqviewer:
         R_ENV_NAME
     shell:
         "Rscript {input.script} {params.seqviewer_dir} > {log} 2>&1"
+
+
+# Rule 9: Methods Section HTML — 파이프라인 완료 후 분석 방법 문서 자동 생성
+rule generate_methods_section:
+    input:
+        script      = "src/analysis/08_generate_methods_section.R",
+        config_file = CONFIG_FILE,
+        summary     = OUTPUT_DIR / "summary_report.html",
+    output:
+        html = OUTPUT_DIR / "methods_section.html"
+    params:
+        output_dir = str(OUTPUT_DIR)
+    log:
+        OUTPUT_DIR / "logs/08_generate_methods_section.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --output-dir {params.output_dir} --output {output.html} > {log} 2>&1"

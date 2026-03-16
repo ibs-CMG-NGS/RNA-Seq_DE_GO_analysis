@@ -60,8 +60,8 @@ rule all:
         # 4. Summary report (모든 pairwise 완료 후 자동 생성)
         OUTPUT_DIR / "summary_report.html",
 
-        # 5. Methods section HTML
-        OUTPUT_DIR / "methods_section.html"
+        # 5. Methods section Markdown
+        OUTPUT_DIR / "methods_section.md"
 
 # --- 4. Analysis Rules ---
 
@@ -405,14 +405,14 @@ rule aggregate_seqviewer:
         "Rscript {input.script} {params.seqviewer_dir} > {log} 2>&1"
 
 
-# Rule 9: Methods Section HTML — 파이프라인 완료 후 분석 방법 문서 자동 생성
+# Rule 9: Methods Section Markdown — 파이프라인 완료 후 분석 방법 문서 자동 생성
 rule generate_methods_section:
     input:
         script      = "src/analysis/08_generate_methods_section.R",
         config_file = CONFIG_FILE,
         summary     = OUTPUT_DIR / "summary_report.html",
     output:
-        html = OUTPUT_DIR / "methods_section.html"
+        md = OUTPUT_DIR / "methods_section.md"
     params:
         output_dir = str(OUTPUT_DIR)
     log:
@@ -420,4 +420,4 @@ rule generate_methods_section:
     conda:
         R_ENV_NAME
     shell:
-        "Rscript {input.script} --config {input.config_file} --output-dir {params.output_dir} --output {output.html} > {log} 2>&1"
+        "Rscript {input.script} --config {input.config_file} --output-dir {params.output_dir} --output {output.md} > {log} 2>&1"

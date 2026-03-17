@@ -56,9 +56,29 @@ lfc_cut    <- config$de_analysis$log2fc_cutoff %||% 0.0
 project_id <- basename(config$output_dir)
 method     <- config$de_analysis$method %||% "DESeq2"
 species    <- config$species %||% "unknown"
+group_var  <- config$de_analysis$group_variable %||% "condition"
 
 cat(sprintf("Project: %s | Pairs: %d | padj < %.2f | |log2FC| > %.1f\n\n",
             project_id, length(PAIRS), padj_cut, lfc_cut))
+
+# --- Load metadata for sample info ---
+condition_samples <- list()   # condition -> character vector of sample_ids
+n_total_samples   <- NA_integer_
+
+meta_path <- config$metadata_path %||% NULL
+if (!is.null(meta_path) && file.exists(meta_path)) {
+  tryCatch({
+    meta <- read.csv(meta_path, stringsAsFactors = FALSE)
+    id_col <- intersect(c("sample_id", "sample", "SampleID", "ID"), colnames(meta))[1]
+    if (is.na(id_col)) id_col <- colnames(meta)[1]
+    if (group_var %in% colnames(meta)) {
+      condition_samples <- split(meta[[id_col]], meta[[group_var]])
+      n_total_samples   <- nrow(meta)
+      cat(sprintf("  Metadata loaded: %d samples, %d conditions\n\n",
+                  n_total_samples, length(condition_samples)))
+    }
+  }, error = function(e) cat(sprintf("  [WARN] Could not read metadata: %s\n\n", e$message)))
+}
 
 # --- 3. Collect per-pair results ---
 pair_data <- list()
@@ -320,6 +340,10 @@ html <- paste0('<!DOCTYPE html>
             <div class="value">', total_pairs, '</div>
         </div>
         <div class="summary-item">
+            <div class="label">Total Samples</div>
+            <div class="value">', ifelse(is.na(n_total_samples), "—", n_total_samples), '</div>
+        </div>
+        <div class="summary-item">
             <div class="label">Total DEGs (all pairs)</div>
             <div class="value">', format(total_degs, big.mark = ","), '</div>
         </div>
@@ -331,7 +355,22 @@ html <- paste0('<!DOCTYPE html>
             <div class="label">|log2FC| cutoff</div>
             <div class="value">', lfc_cut, '</div>
         </div>
-    </div>
+    </div>',
+  # Sample breakdown table (if metadata available)
+  if (length(condition_samples) > 0) {
+    sample_rows <- paste(sapply(names(condition_samples), function(cond) {
+      sids <- condition_samples[[cond]]
+      sprintf('<tr><td><strong>%s</strong></td><td>%d</td><td style="font-size:0.88em;color:#555;">%s</td></tr>',
+              cond, length(sids), paste(sids, collapse = ", "))
+    }), collapse = "\n")
+    paste0('
+    <h3 style="color:#495057;margin-top:24px;margin-bottom:8px;">Sample Groups</h3>
+    <table>
+        <thead><tr><th>Condition</th><th>N</th><th>Sample IDs</th></tr></thead>
+        <tbody>', sample_rows, '</tbody>
+    </table>')
+  } else "",
+'
 </div>
 ')
 
@@ -410,6 +449,19 @@ for (d in pair_data) {
   compare_label <- parts[1]
   base_label    <- parts[2]
 
+  # Sample info for this comparison
+  compare_samples <- condition_samples[[compare_label]]
+  base_samples    <- condition_samples[[base_label]]
+  sample_info_html <- if (!is.null(compare_samples) && !is.null(base_samples)) {
+    sprintf('
+            <div class="note" style="margin-bottom:14px;">
+                <strong>%s</strong> (n=%d): %s<br>
+                <strong>%s</strong> (n=%d): %s
+            </div>',
+      compare_label, length(compare_samples), paste(compare_samples, collapse = ", "),
+      base_label,    length(base_samples),    paste(base_samples,    collapse = ", "))
+  } else ""
+
   html <- paste0(html, sprintf('
     <details>
         <summary>
@@ -418,6 +470,8 @@ for (d in pair_data) {
             <span class="badge badge-down">&#8595; %d down</span>
         </summary>
         <div class="detail-body">
+
+            %s
 
             <div class="plot-container">
                 <img src="%s" alt="Volcano plot %s">
@@ -449,6 +503,7 @@ for (d in pair_data) {
     </details>
 ',
     d$pair, d$n_up, d$n_down,
+    sample_info_html,
     d$volcano_rel, d$pair,
     html_table(d$top_up,   d$gene_col, d$lfc_col, d$padj_col, "up"),
     html_table(d$top_down, d$gene_col, d$lfc_col, d$padj_col, "down"),

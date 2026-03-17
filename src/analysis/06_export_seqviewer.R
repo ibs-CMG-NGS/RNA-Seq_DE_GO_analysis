@@ -105,8 +105,12 @@ de_alias  <- paste(condition, "DE")
 
 de_info   <- write_parquet_dataset(de_std, de_alias, datasets_dir)
 
-sig_count <- sum(!is.na(de_std$adj_pvalue) &
-                   de_std$adj_pvalue < (config$de_analysis$padj_cutoff %||% 0.05),
+padj_cut <- config$de_analysis$padj_cutoff  %||% 0.05
+lfc_cut  <- config$de_analysis$log2fc_cutoff %||% 1.0
+
+sig_count <- sum(!is.na(de_std$adj_pvalue) & !is.na(de_std$log2fc) &
+                   de_std$adj_pvalue < padj_cut &
+                   abs(de_std$log2fc) >= lfc_cut,
                  na.rm = TRUE)
 
 de_entry <- list(

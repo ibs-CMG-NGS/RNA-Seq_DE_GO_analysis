@@ -46,16 +46,18 @@ if (opt$task == "pca") {
   meta_data <- read.csv(here(config$metadata_path), row.names = 1)
   
   # Ensure sample names match between count data and metadata
+  # counts may contain more samples than metadata (shared counts file across subgroups)
   count_samples <- colnames(count_data)
   meta_samples <- rownames(meta_data)
-  
-  if (!all(count_samples %in% meta_samples)) {
-    missing_in_meta <- count_samples[!count_samples %in% meta_samples]
-    stop(paste("Count data columns not found in metadata:", paste(missing_in_meta, collapse=", ")))
+
+  missing_in_counts <- meta_samples[!meta_samples %in% count_samples]
+  if (length(missing_in_counts) > 0) {
+    stop(paste("Metadata samples not found in count data:", paste(missing_in_counts, collapse=", ")))
   }
-  
-  # Reorder metadata to match count data column order
-  meta_data <- meta_data[count_samples, , drop = FALSE]
+
+  # Subset counts to only the samples present in metadata
+  count_data <- count_data[, meta_samples, drop = FALSE]
+  meta_data <- meta_data[meta_samples, , drop = FALSE]
   
   # PCA 플롯의 점 색상을 결정할 그룹 변수 (config에서 읽어옴)
   intgroup <- config$de_analysis$group_variable

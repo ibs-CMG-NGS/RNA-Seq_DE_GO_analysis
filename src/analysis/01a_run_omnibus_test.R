@@ -25,16 +25,18 @@ counts <- read.csv(here(config$count_data_path), row.names = 1, check.names = FA
 meta <- read.csv(here(config$metadata_path), row.names = 1)
 
 # Ensure sample names match between count data and metadata
+# counts may contain more samples than metadata (shared counts file across subgroups)
 count_samples <- colnames(counts)
 meta_samples <- rownames(meta)
 
-if (!all(count_samples %in% meta_samples)) {
-  missing_in_meta <- count_samples[!count_samples %in% meta_samples]
-  stop(paste("Count data columns not found in metadata:", paste(missing_in_meta, collapse=", ")))
+missing_in_counts <- meta_samples[!meta_samples %in% count_samples]
+if (length(missing_in_counts) > 0) {
+  stop(paste("Metadata samples not found in count data:", paste(missing_in_counts, collapse=", ")))
 }
 
-# Reorder metadata to match count data column order
-meta <- meta[count_samples, , drop = FALSE]
+# Subset counts to only the samples present in metadata
+counts <- counts[, meta_samples, drop = FALSE]
+meta <- meta[meta_samples, , drop = FALSE]
 
 cat(paste("Loaded", nrow(counts), "genes and", ncol(counts), "samples\n"))
 

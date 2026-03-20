@@ -247,28 +247,15 @@ if (gene_id_type == "ENTREZID") {
   }
   
   entrez_ids <- tryCatch({
-    mapIds(organism_db, 
+    mapIds(organism_db,
            keys = gene_ids,
            column = "ENTREZID",
            keytype = keytype,
            multiVals = "first")
   }, error = function(e) {
-    if (gene_id_type %in% c("ENSEMBL", "ENSEMBLID")) {
-      # Try alternative keytype
-      alt_keytype <- if (keytype == "ENSEMBL") "ENSEMBLID" else "ENSEMBL"
-      cat(paste("Retrying with keytype:", alt_keytype, "\n"))
-      tryCatch({
-        mapIds(organism_db, 
-               keys = gene_ids,
-               column = "ENTREZID",
-               keytype = alt_keytype,
-               multiVals = "first")
-      }, error = function(e2) {
-        stop(paste("Failed to convert gene IDs. Error:", e2$message))
-      })
-    } else {
-      stop(paste("Failed to convert gene IDs. Error:", e$message))
-    }
+    cat(paste("Warning: mapIds failed with keytype '", keytype, "':", e$message, "\n"))
+    cat("No Entrez ID mapping possible — empty enrichment results will be written.\n")
+    setNames(rep(NA_character_, length(gene_ids)), gene_ids)
   })
   
   # Remove NA values

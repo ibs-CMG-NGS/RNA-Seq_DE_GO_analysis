@@ -21,19 +21,19 @@ create_de_object <- function(config_path = here("config.yml")) {
   meta_data <- read.csv(metadata_path, row.names = 1)
 
   # Ensure sample names match between count data and metadata
-  # Count data columns should match metadata row names
+  # counts may contain more samples than metadata (shared counts file across subgroups)
   count_samples <- colnames(count_data)
   meta_samples <- rownames(meta_data)
-  
-  # Check if samples match
-  if (!all(count_samples %in% meta_samples)) {
-    missing_in_meta <- count_samples[!count_samples %in% meta_samples]
-    stop(paste("Count data columns not found in metadata:", paste(missing_in_meta, collapse=", ")))
+
+  missing_in_counts <- meta_samples[!meta_samples %in% count_samples]
+  if (length(missing_in_counts) > 0) {
+    stop(paste("Metadata samples not found in count data:", paste(missing_in_counts, collapse=", ")))
   }
-  
-  # Reorder metadata to match count data column order
-  meta_data <- meta_data[count_samples, , drop = FALSE]
-  
+
+  # Subset counts to only the samples present in metadata
+  count_data <- count_data[, meta_samples, drop = FALSE]
+  meta_data <- meta_data[meta_samples, , drop = FALSE]
+
   cat(paste("Loaded", nrow(count_data), "genes and", ncol(count_data), "samples\n"))
 
   # config 파일에서 'de_analysis' 섹션의 design_formula를 읽어옵니다.

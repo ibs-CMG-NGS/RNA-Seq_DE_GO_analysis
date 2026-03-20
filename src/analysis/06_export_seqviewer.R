@@ -147,21 +147,21 @@ if (file.exists(go_xlsx)) {
     df <- read.xlsx(go_xlsx, sheet = sh, check.names = FALSE)
     if (nrow(df) == 0) return(NULL)
 
-    # GO 시트: GO.ID / GO.Term  |  KEGG 시트: KEGG.ID / KEGG.Pathway
+    # GO 시트: "GO ID" / "GO Term"  |  KEGG 시트: "KEGG ID" / "KEGG Pathway"  (공백 포함, check.names=FALSE)
     df <- df %>%
       rename(any_of(c(
-        term_id      = "GO.ID",
-        term_id      = "KEGG.ID",
-        description  = "GO.Term",
-        description  = "KEGG.Pathway",
-        direction    = "Gene.Set",
-        gene_ratio   = "Gene.Ratio",
-        bg_ratio     = "Background.Ratio",
+        term_id      = "GO ID",
+        term_id      = "KEGG ID",
+        description  = "GO Term",
+        description  = "KEGG Pathway",
+        gene_set     = "Gene Set",
+        gene_ratio   = "Gene Ratio",
+        bg_ratio     = "Background Ratio",
         pvalue       = "P-value",
-        fdr          = "Adjusted.P-value",
+        fdr          = "Adjusted P-value",
         qvalue       = "Q-value",
-        gene_count   = "Gene.Count",
-        gene_symbols = "Gene.Symbols"
+        gene_count   = "Gene Count",
+        gene_symbols = "Gene Symbols"
       )))
 
     # KEGG 시트는 Ontology 컬럼이 없으므로 추가

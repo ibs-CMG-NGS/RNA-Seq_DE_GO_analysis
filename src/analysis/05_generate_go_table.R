@@ -187,9 +187,16 @@ for (geneset in gene_sets) {
   }
 }
 
-# 결과가 하나도 없으면 종료
+# 결과가 하나도 없으면 빈 xlsx 생성 후 종료 (Snakemake output 충족)
 if (length(all_go_results) == 0 && length(all_kegg_results) == 0) {
-  cat("\n[WARNING] No GO or KEGG enrichment results found. Skipping table generation.\n")
+  cat("\n[WARNING] No GO or KEGG enrichment results found. Writing empty output file.\n")
+  wb_empty <- createWorkbook()
+  addWorksheet(wb_empty, "No Results")
+  writeData(wb_empty, "No Results",
+            data.frame(Message = "No significant GO or KEGG enrichment results for this comparison."))
+  output_file_empty <- file.path(output_dir, "final_go_results.xlsx")
+  saveWorkbook(wb_empty, output_file_empty, overwrite = TRUE)
+  cat(paste("Empty output written:", output_file_empty, "\n"))
   quit(save = "no", status = 0)
 }
 

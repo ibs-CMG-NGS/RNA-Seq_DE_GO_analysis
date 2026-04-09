@@ -143,10 +143,15 @@ if (opt$task == "pca") {
   vp_aes <- config$plot_aesthetics$volcano
   
   # 데이터 가공
+  # padj = 0 처리: R numerical underflow로 인한 -log10(0) = Inf 방지
+  padj_nonzero <- res$padj[!is.na(res$padj) & res$padj > 0]
+  padj_floor <- if (length(padj_nonzero) > 0) min(padj_nonzero) else 1e-300
+  res$padj_plot <- ifelse(!is.na(res$padj) & res$padj == 0, padj_floor, res$padj)
+
   res$diffexpressed <- "NO"
   res$diffexpressed[res$log2FoldChange > config$de_analysis$log2fc_cutoff & res$padj < config$de_analysis$padj_cutoff] <- "UP"
   res$diffexpressed[res$log2FoldChange < -config$de_analysis$log2fc_cutoff & res$padj < config$de_analysis$padj_cutoff] <- "DOWN"
-  
+
   # 상위 N개 유전자 라벨링 로직
   res$delabel <- NA
   if (vp_aes$label_top_n > 0) {
@@ -155,9 +160,9 @@ if (opt$task == "pca") {
     top_n_genes <- head(significant_genes, vp_aes$label_top_n)
     res[rownames(top_n_genes), "delabel"] <- top_n_genes$symbol
   }
-  
+
   # ggplot 객체 생성
-  volcano_plot <- ggplot(data = res, aes(x = log2FoldChange, y = -log10(padj), col = diffexpressed, label = delabel)) +
+  volcano_plot <- ggplot(data = res, aes(x = log2FoldChange, y = -log10(padj_plot), col = diffexpressed, label = delabel)) +
     geom_point(size = vp_aes$point_size) +
     theme_minimal(base_size = vp_aes$base_font_size) +
     scale_color_manual(values = c("UP" = vp_aes$up_color, "DOWN" = vp_aes$down_color, "NO" = vp_aes$base_color)) +

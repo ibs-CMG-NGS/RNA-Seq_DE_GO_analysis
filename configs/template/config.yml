@@ -39,6 +39,24 @@ de_analysis:
   #    이 결과는 '{output_dir}/omnibus_test_results.csv' 등으로 저장됩니다.
   run_omnibus_test: true
 
+  # Multi-group result export (run_omnibus_test: true 일 때만 의미 있음)
+  # omnibus LRT 통계 + normalized count를 하나의 CSV로 출력
+  # CMG-SeqViewer MULTI_GROUP 타입 heatmap/clustering용
+  multi_group_export:
+    enabled: false
+
+    # 발현량 정규화 방식
+    # "normalized": DESeq2 size-factor normalized counts (권장)
+    # "vst"       : VST 변환값 (추후 구현 예정 — 현재 설정 시 오류)
+    abundance_type: "normalized"
+
+    # gene_symbol 컬럼 포함 여부 (databases[species].organism_db 필요)
+    include_gene_symbol: true
+
+    # 선택적 필터링 (null이면 필터 없음)
+    filter_padj: null       # 예: 0.05 → padj <= 0.05 유전자만 출력
+    filter_basemean: null   # 예: 10   → baseMean >= 10 유전자만 출력
+
   # 4. Pairwise Comparisons: 실행할 모든 1:1 비교를 [비교군, 기준군] 쌍으로 명시합니다.
   #    Snakemake가 이 목록을 기반으로 각 비교 작업을 생성합니다.
   pairwise_comparisons:

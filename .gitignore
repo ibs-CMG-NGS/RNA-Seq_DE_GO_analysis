@@ -61,3 +61,7 @@ configs/*
 
 # Snakemake files
 .snakemake/
+
+# Pipeline logs and runtime artifacts
+logs/
+output/.*.flag

@@ -61,7 +61,13 @@ rule all:
         OUTPUT_DIR / "summary_report.html",
 
         # 5. Methods section Markdown
-        OUTPUT_DIR / "methods_section.md"
+        OUTPUT_DIR / "methods_section.md",
+
+        # 6. Multi-group result CSV (omnibus 확장 — run_omnibus_test + multi_group_export.enabled 시)
+        ([OUTPUT_DIR / "multi_group_result.csv"]
+            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
+                and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
+            else [])
 
 # --- 4. Analysis Rules ---
 
@@ -81,7 +87,24 @@ rule run_omnibus_test:
     shell:
         "Rscript {input.script} {input.config_file} {output.csv} > {log} 2>&1"
 
-# Rule 1b: Run Pairwise DE
+# Rule 1b: Multi-group result CSV — omnibus 통계 + normalized counts 통합
+rule export_multi_group:
+    input:
+        omnibus_csv = OUTPUT_DIR / "omnibus_test_results.csv",
+        script      = "src/analysis/09_export_multi_group.R",
+        config_file = CONFIG_FILE,
+        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+        meta   = lambda wildcards: config["metadata_path"]   if "metadata_path"   in config else []
+    output:
+        csv = OUTPUT_DIR / "multi_group_result.csv"
+    log:
+        OUTPUT_DIR / "logs/09_export_multi_group.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} {input.omnibus_csv} {output.csv} > {log} 2>&1"
+
+# Rule 1c: Run Pairwise DE
 # Note: If final_de_results.csv already exists, Snakemake will skip this rule
 rule run_pairwise_de:
     input:

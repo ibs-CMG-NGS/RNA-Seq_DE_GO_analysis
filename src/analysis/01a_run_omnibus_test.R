@@ -110,6 +110,10 @@ if (dge_method == "DESeq2") {
   stop("Invalid DGE method.")
 }
 
-# --- 5. Save Results ---
+# --- 5. Standardize stat column & Save Results ---
+# DESeq2 LRT: already has 'stat' (chi-square). edgeR/limma: 'F' statistic → rename to 'stat'
+if (!"stat" %in% colnames(res_df) && "F" %in% colnames(res_df)) {
+  res_df <- res_df %>% dplyr::rename(stat = `F`)
+}
 write.csv(res_df, output_csv_path, row.names = TRUE)
 cat(paste("Omnibus test results saved to:", output_csv_path, "\n"))

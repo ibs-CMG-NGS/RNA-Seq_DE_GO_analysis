@@ -1,9 +1,10 @@
 # 파일 경로: src/analysis/09_export_multi_group.R
 # Multi-group result export: omnibus LRT 통계 + size-factor normalized counts 통합
-# CMG-SeqViewer MULTI_GROUP 타입용 CSV 생성
+# CMG-SeqViewer MULTI_GROUP 타입용 CSV + Parquet 생성
 #
 # 사용법:
 #   Rscript 09_export_multi_group.R <config_path> <omnibus_csv_path> <output_csv_path>
+#   (parquet는 output_csv_path의 .csv → .parquet로 자동 저장)
 
 suppressPackageStartupMessages({
   library(here)
@@ -11,10 +12,37 @@ suppressPackageStartupMessages({
   library(DESeq2)
   library(dplyr)
   library(tibble)
+  library(arrow)
+  library(jsonlite)
 })
 
 # NULL-coalescing 헬퍼
 `%||%` <- function(a, b) if (!is.null(a)) a else b
+
+# seqviewer 헬퍼 (06_export_seqviewer.R 동일 규격)
+make_alias_slug <- function(alias, max_len = 40) {
+  slug <- gsub("[^\\w\uac00-\ud7a3]+", "_", alias, perl = TRUE)
+  slug <- gsub("^_|_$", "", slug)
+  substr(slug, 1, max_len)
+}
+
+new_uuid <- function() {
+  hex <- paste0(sample(c(0:9, letters[1:6]), 32, replace = TRUE), collapse = "")
+  paste(substr(hex,1,8), substr(hex,9,12),
+        paste0("4", substr(hex,14,16)),
+        paste0(sample(c("8","9","a","b"),1), substr(hex,18,20)),
+        substr(hex,21,32), sep = "-")
+}
+
+write_parquet_dataset <- function(df, alias, datasets_dir) {
+  uid      <- new_uuid()
+  slug     <- make_alias_slug(alias)
+  filename <- paste0(slug, ".parquet")
+  old_files <- list.files(datasets_dir, pattern = paste0("^", slug, "\\.parquet$"), full.names = TRUE)
+  if (length(old_files) > 0) file.remove(old_files)
+  write_parquet(df, file.path(datasets_dir, filename))
+  list(uid = uid, filename = filename)
+}
 
 # --- 1. Arguments ---
 args <- commandArgs(trailingOnly = TRUE)
@@ -50,12 +78,14 @@ if (abundance_type == "vst") {
 include_gene_symbol <- isTRUE(mg_cfg$include_gene_symbol)
 filter_padj         <- mg_cfg$filter_padj     # NULL이면 필터 없음
 filter_basemean     <- mg_cfg$filter_basemean # NULL이면 필터 없음
+reference_group     <- mg_cfg$reference_group # NULL이면 자동 감지
 
 cat("[09_export_multi_group] Starting multi-group result export\n")
 cat(paste("  abundance_type     :", abundance_type, "\n"))
 cat(paste("  include_gene_symbol:", include_gene_symbol, "\n"))
 cat(paste("  filter_padj        :", filter_padj %||% "none", "\n"))
 cat(paste("  filter_basemean    :", filter_basemean %||% "none", "\n"))
+cat(paste("  reference_group    :", reference_group %||% "auto-detect", "\n"))
 
 # --- 3. Load omnibus stats (LRT 재실행 없음) ---
 omnibus_df <- read.csv(omnibus_csv_path, row.names = 1, check.names = FALSE)
@@ -89,13 +119,34 @@ dds <- estimateSizeFactors(dds)
 norm_mat <- counts(dds, normalized = TRUE)
 
 # --- 6. 샘플 컬럼 그룹별 정렬 ---
-group_levels  <- levels(meta[[group_var]])
-sample_order  <- unlist(lapply(group_levels, function(grp)
-  sort(rownames(meta)[meta[[group_var]] == grp])))
-norm_ordered  <- norm_mat[, sample_order, drop = FALSE]
+# reference_group을 맨 앞에, 나머지는 오름차순
+all_groups <- sort(unique(as.character(meta[[group_var]])))
 
-cat(paste("[09_export_multi_group] Sample order:",
-          paste(sample_order, collapse = ", "), "\n"))
+# reference_group 미지정 시 pairwise_comparisons base 그룹 최빈값으로 자동 감지
+if (is.null(reference_group)) {
+  pairs <- de_cfg$pairwise_comparisons
+  if (!is.null(pairs) && length(pairs) > 0) {
+    bases        <- sapply(pairs, function(p) p[[2]])
+    reference_group <- names(sort(table(bases), decreasing = TRUE))[1]
+    cat(paste("[09_export_multi_group] reference_group auto-detected:", reference_group, "\n"))
+  }
+}
+
+if (!is.null(reference_group) && reference_group %in% all_groups) {
+  ordered_groups <- c(reference_group, sort(setdiff(all_groups, reference_group)))
+} else {
+  if (!is.null(reference_group))
+    warning("[09_export_multi_group] reference_group '", reference_group,
+            "' not found in metadata — falling back to alphabetical order.")
+  ordered_groups <- all_groups
+}
+
+sample_order <- unlist(lapply(ordered_groups, function(grp)
+  sort(rownames(meta)[meta[[group_var]] == grp])))
+norm_ordered <- norm_mat[, sample_order, drop = FALSE]
+
+cat(paste("[09_export_multi_group] Group order:", paste(ordered_groups, collapse = " → "), "\n"))
+cat(paste("[09_export_multi_group] Sample order:", paste(sample_order, collapse = ", "), "\n"))
 
 # --- 7. 통합 (omnibus stats + normalized counts) ---
 common_genes <- intersect(rownames(stats_df), rownames(norm_ordered))
@@ -158,6 +209,48 @@ if (include_gene_symbol) {
   }
 }
 
-# --- 10. Save ---
+# --- 10. Save CSV (root) + Parquet + Staging JSON (seqviewer) ---
 write.csv(final_df, output_csv_path, row.names = TRUE)
-cat(paste("[09_export_multi_group] Saved", nrow(final_df), "genes to:", output_csv_path, "\n"))
+cat(paste("[09_export_multi_group] CSV saved:", output_csv_path, "\n"))
+
+# seqviewer 디렉토리 구조 생성
+seqviewer_dir <- file.path(config$output_dir, "seqviewer")
+datasets_dir  <- file.path(seqviewer_dir, "datasets")
+staging_dir   <- file.path(seqviewer_dir, "staging")
+dir.create(datasets_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(staging_dir,  recursive = TRUE, showWarnings = FALSE)
+
+# parquet → seqviewer/datasets/
+parquet_df <- tibble::rownames_to_column(final_df, var = "gene_id")
+mg_alias   <- paste(config$output_dir, "multi_group") # 프로젝트별 고유 alias
+mg_alias   <- basename(config$output_dir)             # e.g. "kkj-rna-seq-ctx"
+mg_alias   <- paste(mg_alias, "Multi-Group")
+mg_info    <- write_parquet_dataset(parquet_df, mg_alias, datasets_dir)
+cat(paste("[09_export_multi_group] Parquet saved:", file.path(datasets_dir, mg_info$filename), "\n"))
+
+# staging JSON entry (06b_aggregate_seqviewer.R가 수집)
+mg_entry <- list(
+  dataset_id           = mg_info$uid,
+  alias                = mg_alias,
+  original_filename    = mg_info$filename,
+  dataset_type         = "multi_group",
+  experiment_condition = paste(ordered_groups, collapse = " / "),
+  organism             = config$species %||% "",
+  cell_type            = "",
+  tissue               = "",
+  timepoint            = "",
+  row_count            = nrow(parquet_df),
+  gene_count           = nrow(parquet_df),
+  significant_genes    = if ("padj" %in% colnames(final_df))
+                           sum(!is.na(final_df$padj) & final_df$padj <= 0.05, na.rm = TRUE)
+                         else 0L,
+  import_date          = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
+  file_path            = mg_info$filename,
+  notes                = paste0(de_cfg$method %||% "DESeq2", " LRT omnibus + normalized counts"),
+  tags                 = as.list(c("multi_group", ordered_groups))
+)
+
+staging_path <- file.path(staging_dir, "multi_group_entries.json")
+write_json(list(mg_entry), staging_path, pretty = TRUE, auto_unbox = TRUE)
+cat(paste("[09_export_multi_group] Staging JSON saved:", staging_path, "\n"))
+cat(paste("[09_export_multi_group] Done:", nrow(final_df), "genes exported\n"))

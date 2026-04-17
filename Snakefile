@@ -63,8 +63,9 @@ rule all:
         # 5. Methods section Markdown
         OUTPUT_DIR / "methods_section.md",
 
-        # 6. Multi-group result CSV (omnibus 확장 — run_omnibus_test + multi_group_export.enabled 시)
-        ([OUTPUT_DIR / "multi_group_result.csv"]
+        # 6. Multi-group result (omnibus 확장 — run_omnibus_test + multi_group_export.enabled 시)
+        #    CSV는 root에, parquet + staging JSON은 seqviewer/에 저장됨
+        ([OUTPUT_DIR / "seqviewer/staging/multi_group_entries.json"]
             if (config.get("de_analysis", {}).get("run_omnibus_test", False)
                 and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
             else [])
@@ -96,7 +97,8 @@ rule export_multi_group:
         counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
         meta   = lambda wildcards: config["metadata_path"]   if "metadata_path"   in config else []
     output:
-        csv = OUTPUT_DIR / "multi_group_result.csv"
+        csv     = OUTPUT_DIR / "multi_group_result.csv",
+        staging = OUTPUT_DIR / "seqviewer/staging/multi_group_entries.json"
     log:
         OUTPUT_DIR / "logs/09_export_multi_group.log"
     conda:
@@ -415,7 +417,11 @@ rule generate_summary_report:
 rule aggregate_seqviewer:
     input:
         script = "src/analysis/06b_aggregate_seqviewer.R",
-        flags = expand(OUTPUT_DIR / "pairwise/{pair}/.seqviewer_export_done.flag", pair=PAIRS)
+        flags = expand(OUTPUT_DIR / "pairwise/{pair}/.seqviewer_export_done.flag", pair=PAIRS),
+        mg_staging = lambda wildcards: [OUTPUT_DIR / "seqviewer/staging/multi_group_entries.json"]
+            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
+                and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
+            else []
     output:
         flag = touch(OUTPUT_DIR / "seqviewer/.seqviewer_done.flag")
     params:

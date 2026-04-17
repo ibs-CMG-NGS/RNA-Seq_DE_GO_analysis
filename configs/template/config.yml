@@ -53,6 +53,10 @@ de_analysis:
     # gene_symbol 컬럼 포함 여부 (databases[species].organism_db 필요)
     include_gene_symbol: true
 
+    # 샘플 컬럼 그룹 정렬 기준 (이 그룹이 맨 앞, 나머지는 오름차순)
+    # null: pairwise_comparisons base 그룹 최빈값으로 자동 감지
+    reference_group: null   # 예: "Control", "WT", "ctrl"
+
     # 선택적 필터링 (null이면 필터 없음)
     filter_padj: null       # 예: 0.05 → padj <= 0.05 유전자만 출력
     filter_basemean: null   # 예: 10   → baseMean >= 10 유전자만 출력

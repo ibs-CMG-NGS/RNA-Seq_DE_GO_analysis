@@ -68,6 +68,11 @@ rule all:
         ([OUTPUT_DIR / "seqviewer/staging/multi_group_entries.json"]
             if (config.get("de_analysis", {}).get("run_omnibus_test", False)
                 and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
+            else []),
+
+        # 7. Google Drive 업로드 (upload.gdrive: true 시)
+        ([OUTPUT_DIR / ".gdrive_upload_done.flag"]
+            if config.get("upload", {}).get("gdrive", False)
             else [])
 
 # --- 4. Analysis Rules ---
@@ -450,3 +455,23 @@ rule generate_methods_section:
         R_ENV_NAME
     shell:
         "Rscript {input.script} --config {input.config_file} --output-dir {params.output_dir} --output {output.md} > {log} 2>&1"
+
+
+# Rule 10: Upload results to Google Drive via rclone
+rule upload_to_gdrive:
+    input:
+        summary   = OUTPUT_DIR / "summary_report.html",
+        methods   = OUTPUT_DIR / "methods_section.md",
+        go_tables = expand(OUTPUT_DIR / "pairwise/{pair}/final_go_results.xlsx", pair=PAIRS),
+    output:
+        flag = touch(OUTPUT_DIR / ".gdrive_upload_done.flag")
+    params:
+        remote      = lambda wildcards: config.get("upload", {}).get("remote", "gd_pargilbong:"),
+        dest_folder = lambda wildcards: config.get("upload", {}).get("dest_folder", "RNA-Seq_Results"),
+        src_dir     = str(OUTPUT_DIR),
+        basename    = OUTPUT_DIR.name
+    log:
+        OUTPUT_DIR / "logs/10_upload_to_gdrive.log"
+    shell:
+        "rclone copy {params.src_dir} {params.remote}{params.dest_folder}/{params.basename} "
+        "--log-level INFO > {log} 2>&1"

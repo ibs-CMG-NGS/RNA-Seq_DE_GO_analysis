@@ -17,6 +17,7 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
 * **체계적인 결과 관리**: 고정된 출력 폴더(`config.yml`에서 지정)에 모든 결과물과 사용된 설정 파일(`config_used.yml`) 저장.
 * **고품질 시각화**: PCA, Volcano plot, GO Dot/Bar plot 등의 세부 속성 제어 가능.
 * **다양한 실행 옵션**: 재현성 높은 파이프라인 실행을 위한 **Snakemake**(권장)와 단계별 실행 및 결과 탐색을 위한 **Jupyter Notebook** 지원.
+* **Google Drive 자동 업로드**: `rclone`을 통해 파이프라인 완료 후 결과 폴더를 자동으로 Google Drive에 백업. `config.yml`에서 한 줄로 활성화 가능.
 
 ---
 
@@ -504,6 +505,95 @@ python3 convert_de_to_gsea.py \
 - **Python 스크립트 가이드**: [`bridge/README.md`](bridge/README.md)
 - **사용 예제 모음**: [`bridge/EXAMPLES.sh`](bridge/EXAMPLES.sh)
 - **워크플로우 다이어그램**: [`bridge/WORKFLOW_DIAGRAM.md`](bridge/WORKFLOW_DIAGRAM.md)
+
+---
+
+## ☁️ Google Drive 자동 업로드
+
+파이프라인이 완료되면 `rclone`을 통해 결과 폴더 전체를 Google Drive에 자동으로 업로드할 수 있습니다. 이미 GDrive에 동일한 파일이 있으면 건너뛰므로, 분석을 재실행해도 안전하게 사용할 수 있습니다.
+
+### 사전 준비 (최초 1회)
+
+#### 1. rclone 설치
+
+```bash
+# Ubuntu/Debian
+sudo apt install rclone
+
+# 또는 공식 설치 스크립트
+curl https://rclone.org/install.sh | sudo bash
+```
+
+#### 2. Google Drive remote 설정
+
+```bash
+rclone config
+```
+
+대화형 설정 진행:
+1. `n` (New remote)
+2. 이름 입력 (예: `my_gdrive`)
+3. 스토리지 타입: `drive` (Google Drive)
+4. Client ID / Secret: 비워두고 Enter (기본값 사용)
+5. Scope: `1` (전체 드라이브 접근)
+6. 브라우저 인증 완료
+
+설정된 remote 이름 확인:
+```bash
+rclone listremotes
+# 출력 예: my_gdrive:
+```
+
+### config.yml 설정
+
+`configs/config_my_experiment.yml`에 아래 블록을 추가합니다:
+
+```yaml
+# -------------------------
+# Upload Options
+# -------------------------
+upload:
+  # true로 설정하면 파이프라인 완료 후 Google Drive에 자동 업로드
+  gdrive: true
+
+  # rclone remote 이름 (rclone listremotes 로 확인)
+  remote: "my_gdrive:"
+
+  # Google Drive 내 업로드할 상위 폴더 이름
+  # 실제 업로드 경로: {remote}{dest_folder}/{output_dir 폴더명}/
+  # 예: my_gdrive:RNA-Seq_Results/mouse-h2o2-neuron-2026/
+  dest_folder: "RNA-Seq_Results"
+```
+
+`gdrive: false`로 설정하면 업로드 단계를 건너뜁니다.
+
+### 동작 방식
+
+- **트리거**: `summary_report.html`과 `methods_section.md`가 모두 생성된 후 — 즉 모든 분석이 완료된 시점에 실행됩니다.
+- **업로드 경로**: `{remote}{dest_folder}/{output_dir 폴더명}/`
+  - 예: `output_dir: output/mouse-h2o2-neuron-2026` → `my_gdrive:RNA-Seq_Results/mouse-h2o2-neuron-2026/`
+- **중복 처리**: `rclone copy`를 사용하므로 동일한 파일은 건너뜁니다. 증분 업로드가 가능합니다.
+- **완료 표시**: `output/{프로젝트}/.gdrive_upload_done.flag` 파일 생성 (Snakemake 재실행 시 업로드 중복 방지)
+- **로그**: `output/{프로젝트}/logs/10_upload_to_gdrive.log`
+
+### 업로드 확인
+
+```bash
+# GDrive에 업로드된 파일 목록 확인
+rclone ls my_gdrive:RNA-Seq_Results/mouse-h2o2-neuron-2026/
+
+# 업로드 로그 확인
+cat output/mouse-h2o2-neuron-2026/logs/10_upload_to_gdrive.log
+```
+
+### 문제 해결
+
+| 증상 | 원인 | 해결 방법 |
+|:-----|:-----|:----------|
+| `rclone: command not found` | rclone 미설치 | `sudo apt install rclone` 실행 |
+| `Failed to create file system` | remote 이름 오류 | `rclone listremotes`로 정확한 이름 확인 후 config 수정 |
+| `Token expired` | 인증 만료 | `rclone config reconnect my_gdrive:` 실행 |
+| 업로드 단계가 실행되지 않음 | `gdrive: false` 설정 | config에서 `gdrive: true`로 변경 |
 
 ---
 

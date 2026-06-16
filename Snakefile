@@ -474,4 +474,5 @@ rule upload_to_gdrive:
         OUTPUT_DIR / "logs/10_upload_to_gdrive.log"
     shell:
         "rclone copy {params.src_dir} {params.remote}{params.dest_folder}/{params.basename} "
+        "--exclude 'logs/10_upload_to_gdrive.log' "
         "--log-level INFO > {log} 2>&1"

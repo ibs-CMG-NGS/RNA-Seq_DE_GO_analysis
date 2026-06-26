@@ -229,5 +229,5 @@ upload:
   # Google Drive 내 업로드할 상위 폴더 이름
   # 실제 업로드 경로: {remote}{dest_folder}/{output_dir 폴더명}/
   # 예: gd_pargilbong:RNA-Seq_Results/mouse-h2o2-neuron-2026/
-  dest_folder: "RNA-Seq_Results"
+  dest_folder: "CMG_folder/Data/01_RNA-SEQ"
 

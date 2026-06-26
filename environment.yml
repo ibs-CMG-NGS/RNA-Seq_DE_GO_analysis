@@ -3,11 +3,14 @@ channels:
   - conda-forge
   - bioconda
   - defaults
-channel_priority: strict
 dependencies:
-  # Jupyter Kernel 
-  - r-irkernel   
-  - ipykernel      
+  # Pipeline orchestration & upload
+  - snakemake
+  - rclone
+
+  # Jupyter Kernel
+  - r-irkernel
+  - ipykernel
 
   # R base
   - r-base=4.3

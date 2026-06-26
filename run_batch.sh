@@ -29,7 +29,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIGS_DIR="$SCRIPT_DIR/configs"
 BATCH_LOG_DIR="$SCRIPT_DIR/logs/batch"
-CONDA_ENV="snakemake_env"
+CONDA_ENV="rna-seq-de-go-analysis"
 
 # ============================================================
 # 옵션 파싱

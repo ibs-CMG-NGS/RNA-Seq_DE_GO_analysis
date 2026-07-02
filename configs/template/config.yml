@@ -155,6 +155,9 @@ databases:
   mouse:
     organism_db: "org.Mm.eg.db"
     kegg_code: "mmu"
+  rat:
+    organism_db: "org.Rn.eg.db"
+    kegg_code: "rno"
 
 # -------------------------
 # Plot Aesthetics (시각화 속성)

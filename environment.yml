@@ -42,6 +42,7 @@ dependencies:
   - bioconductor-clusterprofiler
   - bioconductor-org.hs.eg.db
   - bioconductor-org.mm.eg.db
+  - bioconductor-org.rn.eg.db
   - bioconductor-annotationdbi
   - bioconductor-ggtree
   - bioconductor-gosemsim

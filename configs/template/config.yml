@@ -215,7 +215,7 @@ export:
   # 생성된 파일을 앱의 data/ 폴더에 복사하면 재시작 시 자동 인식됩니다.
   # 자세한 내용: pipeline-integration.md
   # ──────────────────────────────────────────────────────────────────
-  seqviewer: false
+  seqviewer: true
 
 # -------------------------
 # Upload Options

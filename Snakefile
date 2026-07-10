@@ -463,6 +463,17 @@ rule upload_to_gdrive:
         summary   = OUTPUT_DIR / "summary_report.html",
         methods   = OUTPUT_DIR / "methods_section.md",
         go_tables = expand(OUTPUT_DIR / "pairwise/{pair}/final_go_results.xlsx", pair=PAIRS),
+        # Force ordering: without these, upload_to_gdrive is a DAG sibling of
+        # the seqviewer export jobs (not a dependent), so Snakemake can finish
+        # (and touch) the upload flag before seqviewer/multi-group artifacts
+        # exist. Once touched the flag never re-triggers, silently shipping an
+        # incomplete upload.
+        seqviewer = ([OUTPUT_DIR / "seqviewer/.seqviewer_done.flag"]
+            if config.get("export", {}).get("seqviewer", False) else []),
+        multi_group = ([OUTPUT_DIR / "seqviewer/staging/multi_group_entries.json"]
+            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
+                and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
+            else []),
     output:
         flag = touch(OUTPUT_DIR / ".gdrive_upload_done.flag")
     params:
@@ -473,6 +484,6 @@ rule upload_to_gdrive:
     log:
         OUTPUT_DIR / "logs/10_upload_to_gdrive.log"
     shell:
-        "rclone copy {params.src_dir} {params.remote}{params.dest_folder}/{params.basename} "
+        "/home/ngs/program/anaconda3/bin/rclone copy {params.src_dir} {params.remote}{params.dest_folder}/{params.basename} "
         "--exclude 'logs/10_upload_to_gdrive.log' "
         "--log-level INFO > {log} 2>&1"

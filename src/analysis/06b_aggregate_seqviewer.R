@@ -27,7 +27,12 @@ for (f in staging_files) {
 }
 cat(paste("Collected", length(new_entries), "entries from", length(staging_files), "staging files\n"))
 
-# 기존 metadata.json 있으면 병합 (dataset_id 기준 중복 제거, 새 항목 우선)
+# 기존 metadata.json 있으면 병합 후 alias 기준으로 최신 import_date만 남긴다.
+# dataset_id는 실행할 때마다 새로 생성되는 UUID라 이것만으로 중복 제거하면, 같은 항목을
+# 다시 만들어내는 재실행(예: 다른 옵션 추가로 일부 rule만 다시 도는 경우)이 있을 때마다
+# 예전 항목이 지워지지 않고 계속 쌓이는 문제가 실제로 있었다. alias는 재실행해도 그대로
+# 유지되는 실질적 식별자이므로 이 기준으로 병합하면 예전에 이미 쌓인 stale 중복도
+# 다음 실행 때 자동으로 정리된다(self-healing).
 existing_datasets <- list()
 if (file.exists(meta_path)) {
   existing <- fromJSON(meta_path, simplifyVector = FALSE)
@@ -35,9 +40,17 @@ if (file.exists(meta_path)) {
   cat(paste("Existing metadata.json found:", length(existing_datasets), "datasets\n"))
 }
 
-new_ids    <- sapply(new_entries, `[[`, "dataset_id")
-kept_old   <- Filter(function(x) !x$dataset_id %in% new_ids, existing_datasets)
-all_entries <- c(kept_old, new_entries)
+combined <- c(existing_datasets, new_entries)
+by_alias <- list()
+for (e in combined) {
+  a <- e$alias
+  if (is.null(by_alias[[a]]) || e$import_date > by_alias[[a]]$import_date) {
+    by_alias[[a]] <- e
+  }
+}
+all_entries <- unname(by_alias)
+cat(paste("After alias-based dedup:", length(all_entries), "datasets (",
+          length(combined) - length(all_entries), "stale duplicates removed )\n"))
 
 metadata <- list(
   version      = "1.0",

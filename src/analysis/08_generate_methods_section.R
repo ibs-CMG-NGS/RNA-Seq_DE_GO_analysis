@@ -124,6 +124,13 @@ annodbi_ver    <- pkg_ver("AnnotationDbi")
 orgdb_ver      <- pkg_ver(organism_db)
 enrichplot_ver <- pkg_ver("enrichplot")
 ggplot2_ver    <- pkg_ver("ggplot2")
+masigpro_ver   <- pkg_ver("maSigPro")
+degreport_ver  <- pkg_ver("DEGreport")
+
+ts_cfg <- de_cfg$time_series          %||% list()
+cm_cfg <- de_cfg$coexpression_modules %||% list()
+ts_enabled <- isTRUE(ts_cfg$enabled)
+cm_enabled <- isTRUE(cm_cfg$enabled)
 snakemake_ver  <- tryCatch(
   trimws(system2("snakemake", "--version", stdout = TRUE, stderr = FALSE)[1]),
   error = function(e) "N/A"
@@ -300,6 +307,58 @@ md_table(
   )
 )
 
+# ── 2a. Time-Series Analysis (maSigPro) ────────────────────────────────────
+if (ts_enabled) {
+  h(2, "2a. Time-Series Analysis (maSigPro)")
+  ts_degree <- ts_cfg$degree %||% "auto"
+  ts_q      <- ts_cfg$q_value %||% 0.05
+  ts_rsq    <- ts_cfg$rsq_cutoff %||% 0.6
+  ts_k      <- ts_cfg$pattern_k %||% 6
+  p(paste0(
+    "Genes with significant expression trajectories over time were identified using **maSigPro** ",
+    "(v", masigpro_ver, ") [Conesa 2006, Nueda 2014], which fits a negative binomial generalized ",
+    "linear model per gene with time as a polynomial regressor, followed by stepwise variable selection. ",
+    "The dispersion parameter was estimated externally via edgeR's common dispersion and supplied to ",
+    "maSigPro's count-based regression. Significant genes were subsequently grouped into expression ",
+    "pattern clusters using hierarchical clustering (`see.genes`)."
+  ))
+  blank()
+  md_table(
+    c("Parameter", "Value", "Description"),
+    list(
+      list("Time variable",       ts_cfg$time_variable   %||% "time", "Metadata column with numeric time values"),
+      list("Series variable",     ts_cfg$series_variable  %||% "(single series)", "Metadata column distinguishing parallel series"),
+      list("Polynomial degree",   ts_degree, "Regression degree ('auto' = min(n_timepoints-1, 2))"),
+      list("Q-value cutoff",      ts_q,   "BH-adjusted p-value threshold for model significance"),
+      list("R-squared cutoff",    ts_rsq, "Minimum variance explained to call a gene significant"),
+      list("Pattern clusters (k)",ts_k,   "Number of expression pattern clusters")
+    )
+  )
+}
+
+# ── 2b. Coexpression Module Analysis ───────────────────────────────────────
+if (cm_enabled) {
+  h(2, "2b. Coexpression Module Analysis")
+  cm_padj <- cm_cfg$padj_cutoff %||% padj_cut
+  cm_minc <- cm_cfg$min_cluster_size %||% 5
+  p(paste0(
+    "Genes with significant differences across all groups (omnibus test, see above) were further ",
+    "grouped into coexpression modules using **DEGreport** (v", degreport_ver, ") [Pantano 2023], ",
+    "which clusters variance-stabilized expression profiles by group means using correlation-based ",
+    "distance and hierarchical clustering (`degPatterns`). This analysis is restricted to the ",
+    "omnibus-significant gene subset rather than the full transcriptome."
+  ))
+  blank()
+  md_table(
+    c("Parameter", "Value", "Description"),
+    list(
+      list("padj cutoff (gene selection)", cm_padj, "Omnibus test adjusted p-value threshold"),
+      list("Minimum genes required",       cm_cfg$min_genes %||% 10, "Analysis skipped below this threshold"),
+      list("Minimum cluster size",         cm_minc, "`degPatterns` minc parameter")
+    )
+  )
+}
+
 # ── 3. Functional Enrichment Analysis ──────────────────────────────────────
 h(2, "3. Functional Enrichment Analysis")
 p(paste0(
@@ -351,6 +410,10 @@ sw_rows <- c(sw_rows, list(
   list("ggplot2",         ggplot2_ver,   "Data visualization"),
   list("Snakemake",       snakemake_ver, "Workflow management")
 ))
+if (ts_enabled)
+  sw_rows <- c(sw_rows, list(list("maSigPro", masigpro_ver, "Time-series differential expression")))
+if (cm_enabled)
+  sw_rows <- c(sw_rows, list(list("DEGreport", degreport_ver, "Coexpression module clustering")))
 
 md_table(c("Tool / Package", "Version", "Purpose"), sw_rows)
 p(paste0(
@@ -375,6 +438,16 @@ li(paste0("Pagès H, et al. (2023). AnnotationDbi: Manipulation of SQLite-based 
           "R package version ", annodbi_ver, "."))
 li(paste0("Köster J & Rahmann S. (2012). Snakemake — a scalable bioinformatics workflow engine. ",
           "*Bioinformatics*, 28(19):2520–2522."))
+if (ts_enabled) {
+  li(paste0("Conesa A, et al. (2006). maSigPro: a method to identify significantly differential ",
+            "expression profiles in time-course microarray experiments. *Bioinformatics*, 22(9):1096–1102."))
+  li(paste0("Nueda MJ, et al. (2014). Functional assessment of time course microarray data. ",
+            "*BMC Bioinformatics* / maSigPro RNA-seq extension. *Bioinformatics*, 30(18):2598–2602."))
+}
+if (cm_enabled) {
+  li(paste0("Pantano L. (2023). DEGreport: Report of DEG analysis. ",
+            "R package version ", degreport_ver, ", Bioconductor."))
+}
 blank()
 
 # ── Appendix: Full Configuration ───────────────────────────────────────────

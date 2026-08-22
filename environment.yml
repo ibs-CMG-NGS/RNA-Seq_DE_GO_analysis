@@ -34,6 +34,9 @@ dependencies:
   - r-pheatmap
   - r-rcolorbrewer
   - r-reshape2
+  - r-arrow
+  - r-jsonlite
+  - r-ggupset
 
   # Bioconductor 패키지 (Conda 설치 가능)
   - bioconductor-deseq2
@@ -49,3 +52,6 @@ dependencies:
   - bioconductor-enrichplot
   - bioconductor-hdo.db
   - bioconductor-go.db
+  - bioconductor-masigpro
+  - bioconductor-rrvgo
+  - bioconductor-degreport

@@ -54,35 +54,28 @@ if (!require(organism_db_name, character.only = TRUE, quietly = TRUE)) {
 organism_db <- get(organism_db_name)
 cat("  ✓ Organism database loaded successfully\n\n")
 
-# --- 2c. Function to convert Entrez IDs to Gene Symbols ---
-convert_entrez_to_symbols <- function(entrez_ids_string, organism_db) {
-  # entrez_ids_string: e.g., "1234/5678/9012"
-  # Returns: e.g., "GENEA/GENEB/GENEC"
-  
-  if (is.na(entrez_ids_string) || entrez_ids_string == "" || is.null(entrez_ids_string)) {
-    return("")
-  }
-  
-  # Split Entrez IDs
-  entrez_ids <- strsplit(as.character(entrez_ids_string), "/")[[1]]
-  
-  # Convert to symbols
-  symbols <- tryCatch({
-    mapIds(organism_db, 
-           keys = entrez_ids,
-           column = "SYMBOL",
-           keytype = "ENTREZID",
-           multiVals = "first")
+# --- 2c. Function to convert Entrez IDs to Gene Symbols (vectorized) ---
+# 컬럼 전체를 받아 고유 Entrez ID에 대해 mapIds()를 단 한 번만 호출한다.
+# (행마다 mapIds()를 호출하면 GO term이 수천 개일 때 DB 쿼리 오버헤드가 누적되어
+#  매우 느려지는 문제가 실제로 확인되어 벡터화함)
+convert_entrez_column_to_symbols <- function(entrez_ids_strings, organism_db) {
+  # entrez_ids_strings: e.g., c("1234/5678", "9012", NA, "")
+  non_empty <- entrez_ids_strings[!is.na(entrez_ids_strings) & entrez_ids_strings != ""]
+  all_ids <- unique(unlist(strsplit(as.character(non_empty), "/")))
+
+  lookup <- tryCatch({
+    mapIds(organism_db, keys = all_ids, column = "SYMBOL", keytype = "ENTREZID", multiVals = "first")
   }, error = function(e) {
-    # If conversion fails, return original IDs
-    return(entrez_ids)
+    setNames(all_ids, all_ids)
   })
-  
-  # Replace NAs with original Entrez IDs
-  symbols[is.na(symbols)] <- entrez_ids[is.na(symbols)]
-  
-  # Combine with "/"
-  return(paste(symbols, collapse = "/"))
+
+  vapply(entrez_ids_strings, function(x) {
+    if (is.na(x) || x == "") return("")
+    ids <- strsplit(as.character(x), "/")[[1]]
+    symbols <- lookup[ids]
+    symbols[is.na(symbols)] <- ids[is.na(symbols)]
+    paste(symbols, collapse = "/")
+  }, character(1), USE.NAMES = FALSE)
 }
 
 # --- 3a. GO file collection function ---
@@ -208,9 +201,7 @@ format_go_table <- function(go_df, organism_db) {
   
   # Convert Entrez IDs to Gene Symbols
   cat("  Converting Entrez IDs to Gene Symbols for GO...\n")
-  go_df$geneSymbol <- sapply(go_df$geneID, function(x) {
-    convert_entrez_to_symbols(x, organism_db)
-  })
+  go_df$geneSymbol <- convert_entrez_column_to_symbols(go_df$geneID, organism_db)
   cat("  ✓ Conversion complete\n")
   
   # Select and order columns (use dplyr::select explicitly to avoid conflicts with AnnotationDbi)
@@ -252,9 +243,7 @@ format_kegg_table <- function(kegg_df, organism_db) {
   
   # Convert Entrez IDs to Gene Symbols
   cat("  Converting Entrez IDs to Gene Symbols for KEGG...\n")
-  kegg_df$geneSymbol <- sapply(kegg_df$geneID, function(x) {
-    convert_entrez_to_symbols(x, organism_db)
-  })
+  kegg_df$geneSymbol <- convert_entrez_column_to_symbols(kegg_df$geneID, organism_db)
   cat("  ✓ Conversion complete\n")
   
   # Select and order columns

@@ -40,7 +40,8 @@ vignettes/*.pdf
 .Renviron
 
 # pkgdown site
-docs/
+docs/*
+!docs/*.md
 
 # translation temp files
 po/*~

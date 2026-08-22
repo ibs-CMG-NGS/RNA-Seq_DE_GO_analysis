@@ -475,12 +475,246 @@ if (opt$task == "go") {
   } else {
     # No results at all
     cat("No GO enrichment results. Creating placeholder plot.\n")
-    empty_plot <- ggplot() + 
-      annotate("text", x = 0.5, y = 0.5, 
-              label = paste("No GO enrichment found\nfor", gene_set, "regulated genes -", ont), 
+    empty_plot <- ggplot() +
+      annotate("text", x = 0.5, y = 0.5,
+              label = paste("No GO enrichment found\nfor", gene_set, "regulated genes -", ont),
                size = 6, hjust = 0.5) +
       theme_void()
     ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+  }
+
+  # GO term clustering(term_cluster)과 GO Slim rollup(go_slim) 둘 다에서 쓰는 공용 헬퍼/값
+  parse_ratio <- function(x) {
+    parts <- as.numeric(strsplit(x, "/")[[1]])
+    parts[1] / parts[2]
+  }
+  compute_fold_enrichment <- function(go_df) {
+    mapply(function(gr, br) parse_ratio(gr) / parse_ratio(br), go_df$GeneRatio, go_df$BgRatio)
+  }
+
+  # --- GO term clustering (up/down 세트에만 적용, "total"은 제외) ---
+  # FDR<fdr_cutoff & FoldEnrichment>fold_enrichment_cutoff로 유의 term만 추린 뒤,
+  # term간 유전자 중복도(Jaccard)로 pairwise_termsim() + treeplot() 클러스터링.
+  tc_cfg <- config$enrichment$term_cluster
+  tc_enabled <- if (is.null(tc_cfg) || is.null(tc_cfg$enabled)) TRUE else isTRUE(tc_cfg$enabled)
+
+  if (tc_enabled && gene_set %in% c("up", "down") && !is.null(go_results) && nrow(go_results) > 0) {
+    fdr_cutoff  <- ifelse(is.null(tc_cfg$fdr_cutoff), 0.05, tc_cfg$fdr_cutoff)
+    fe_cutoff   <- ifelse(is.null(tc_cfg$fold_enrichment_cutoff), 2.0, tc_cfg$fold_enrichment_cutoff)
+    # similarity_cutoff가 기본 모드(CMG-SeqViewer 자체 클러스터링 기본값과 동일: Jaccard 0.7).
+    # 하위호환용으로 similarity_cutoff를 명시적으로 null로 두면 n_clusters(고정 k) 모드로 대체.
+    similarity_cutoff <- if ("similarity_cutoff" %in% names(tc_cfg)) tc_cfg$similarity_cutoff else 0.7
+    n_clusters  <- ifelse(is.null(tc_cfg$n_clusters), 5, tc_cfg$n_clusters)
+    hclust_method <- ifelse(is.null(tc_cfg$hclust_method), "average", tc_cfg$hclust_method)
+    # show_top_n은 PNG treeplot 시각화 전용 상한이다(treeplot()이 term이 많아질수록 렌더링이
+    # 급격히 느려지고 200~500개 구간에서 내부 에러도 나므로). CSV/CMG용 엑셀 내보내기는 이
+    # 제한과 무관하게 유의 term 전체(모든 클러스터+싱글톤)를 대상으로 한다.
+    show_top_n  <- ifelse(is.null(tc_cfg$show_top_n), 30, tc_cfg$show_top_n)
+
+    go_df_tc <- as.data.frame(go_results)
+    go_df_tc$FoldEnrichment <- compute_fold_enrichment(go_df_tc)
+    sig_ids <- go_df_tc$ID[!is.na(go_df_tc$p.adjust) & go_df_tc$p.adjust < fdr_cutoff &
+                            !is.na(go_df_tc$FoldEnrichment) & go_df_tc$FoldEnrichment > fe_cutoff]
+
+    out_termcluster     <- file.path(output_path, paste0("go_termcluster_", gene_set, "_", ont, ".png"))
+    out_termcluster_csv <- file.path(output_path, paste0("go_termcluster_", gene_set, "_", ont, ".csv"))
+    min_terms_needed <- 3
+
+    if (length(sig_ids) >= min_terms_needed) {
+      go_sig <- go_results
+      go_sig@result <- go_df_tc[go_df_tc$ID %in% sig_ids, ]
+
+      # --- 유의 term 전체를 클러스터링(show_top_n 제한 없음) — CSV/CMG 엑셀 내보내기용 ---
+      # pairwise_termsim() 자체는 term이 수백 개여도 빠르다(느려지는/깨지는 건 treeplot()
+      # 렌더링 쪽이라 아래에서 따로 표시 개수만 제한한다).
+      clus_result <- tryCatch({
+        # pairwise_termsim()은 showCategory 기본값이 200이라, 명시하지 않으면 유의 term이
+        # 200개를 넘을 때 조용히 상위 200개로만 유사도 행렬을 잘라버린다(실제 확인된 실패
+        # 사례: "subscript out of bounds"). 유의 term 전체를 클러스터링해야 하므로 명시한다.
+        go_sig_termsim <- pairwise_termsim(go_sig, method = "JC", showCategory = length(sig_ids))
+
+        keep <- seq_len(length(sig_ids))
+        termsim2 <- go_sig_termsim@termsim[keep, keep]
+        termsim2[is.na(termsim2)] <- 0
+        termsim2 <- termsim2 + t(termsim2)
+        diag(termsim2) <- 1
+        hc_manual <- stats::hclust(stats::as.dist(1 - termsim2), method = hclust_method)
+
+        if (!is.null(similarity_cutoff)) {
+          clus <- stats::cutree(hc_manual, h = 1 - similarity_cutoff)
+        } else {
+          clus <- stats::cutree(hc_manual, k = min(n_clusters, length(sig_ids)))
+        }
+        list(termsim = go_sig_termsim, clus = clus)
+      }, error = function(e) {
+        cat(paste("[term_cluster] Failed:", e$message, "\n"))
+        NULL
+      })
+
+      if (!is.null(clus_result)) {
+        clus <- clus_result$clus
+        effective_n <- length(unique(clus))
+        n_singletons <- sum(table(clus) == 1)
+        if (!is.null(similarity_cutoff)) {
+          cat(sprintf("[term_cluster] similarity_cutoff=%.2f -> %d terms, %d clusters, %d singletons\n",
+                       similarity_cutoff, length(sig_ids), effective_n, n_singletons))
+        } else {
+          cat(sprintf("[term_cluster] n_clusters=%d -> %d terms, %d clusters, %d singletons\n",
+                       n_clusters, length(sig_ids), effective_n, n_singletons))
+        }
+
+        # --- CSV 저장: 유의 term 전체(모든 클러스터 + 싱글톤)의 클러스터 배정 ---
+        # 주의: pairwise_termsim() 결과의 @termsim 행/열 이름은 GO ID가 아니라 Description이다.
+        cluster_df <- go_df_tc[match(names(clus), go_df_tc$Description),
+                                c("ID", "Description", "GeneRatio", "BgRatio", "FoldEnrichment",
+                                  "pvalue", "p.adjust", "qvalue", "Count", "geneID")]
+        cluster_df$cluster <- clus[cluster_df$Description]
+        cluster_df <- cluster_df[order(cluster_df$cluster, cluster_df$p.adjust), ]
+        write.csv(cluster_df, out_termcluster_csv, row.names = FALSE)
+        cat(sprintf("Saved GO term cluster assignments (%d terms, %d clusters) to %s\n",
+                     nrow(cluster_df), effective_n, basename(out_termcluster_csv)))
+
+        # --- PNG 시각화 (best-effort, show_top_n으로 상위 term만 대표 표시 — 실패해도 위 CSV는 이미 저장됨) ---
+        show_n <- min(as.integer(show_top_n), length(sig_ids))
+        tp <- tryCatch({
+          treeplot(clus_result$termsim, showCategory = show_n,
+                   cluster.params = list(method = hclust_method, n = min(effective_n, show_n)))
+        }, error = function(e) {
+          cat(paste("[term_cluster] treeplot failed:", e$message, "\n"))
+          NULL
+        })
+
+        if (!is.null(tp)) {
+          # term/클러스터 수가 많으면 라벨이 겹치지 않도록 세로 길이를 동적으로 늘림
+          plot_height <- max(8, show_n * 0.22, min(effective_n, show_n) * 0.4)
+          ggsave(out_termcluster, plot = tp, width = 12, height = plot_height, bg = "white", limitsize = FALSE)
+          cat(sprintf("Saved GO term cluster plot (%d of %d terms shown) to %s\n",
+                       show_n, length(sig_ids), basename(out_termcluster)))
+        }
+      }
+    } else {
+      cat(sprintf("[term_cluster] Only %d terms pass FDR<%.3f & FoldEnrichment>%.1f (need >= %d) — skipping clustering, creating placeholder.\n",
+                   length(sig_ids), fdr_cutoff, fe_cutoff, min_terms_needed))
+      empty_plot <- ggplot() +
+        annotate("text", x = 0.5, y = 0.5,
+                label = sprintf("Not enough significant GO terms to cluster\n(FDR<%.3f & FoldEnrichment>%.1f)\nfor %s regulated genes - %s\n(%d term(s) found, need >= %d)",
+                                 fdr_cutoff, fe_cutoff, gene_set, ont, length(sig_ids), min_terms_needed),
+                 size = 5, hjust = 0.5) +
+        theme_void()
+      ggsave(out_termcluster, plot = empty_plot, width = 12, height = 8, bg = "white")
+    }
+  }
+
+  # --- GO Slim rollup (up/down 세트에만 적용, "total"은 제외) ---
+  # FDR<fdr_cutoff & FoldEnrichment>fold_enrichment_cutoff로 유의 term만 추린 뒤,
+  # clusterProfiler::gofilter()로 GO DAG level 기준 상위 범주만 남긴다. 이 CSV들은
+  # 05c_generate_go_slim_overview.R이 pair 단위로 up/down을 합쳐 대칭 bar chart를 그리는 데 쓰인다.
+  slim_cfg <- config$enrichment$go_slim
+  slim_enabled <- if (is.null(slim_cfg) || is.null(slim_cfg$enabled)) TRUE else isTRUE(slim_cfg$enabled)
+
+  if (slim_enabled && gene_set %in% c("up", "down") && !is.null(go_results) && nrow(go_results) > 0) {
+    slim_level <- ifelse(is.null(slim_cfg$level), 3, slim_cfg$level)
+    slim_fdr   <- ifelse(is.null(slim_cfg$fdr_cutoff), 0.05, slim_cfg$fdr_cutoff)
+    slim_fe    <- ifelse(is.null(slim_cfg$fold_enrichment_cutoff), 2.0, slim_cfg$fold_enrichment_cutoff)
+
+    go_df_slim <- as.data.frame(go_results)
+    go_df_slim$FoldEnrichment <- compute_fold_enrichment(go_df_slim)
+    slim_sig_ids <- go_df_slim$ID[!is.na(go_df_slim$p.adjust) & go_df_slim$p.adjust < slim_fdr &
+                                   !is.na(go_df_slim$FoldEnrichment) & go_df_slim$FoldEnrichment > slim_fe]
+
+    out_slim_csv <- file.path(output_path, paste0("go_slim_", gene_set, "_", ont, ".csv"))
+    if (length(slim_sig_ids) > 0) {
+      go_sig_slim <- go_results
+      go_sig_slim@result <- go_df_slim[go_df_slim$ID %in% slim_sig_ids, ]
+      slim_result <- tryCatch(gofilter(go_sig_slim, level = slim_level), error = function(e) {
+        cat(paste("[go_slim] gofilter failed:", e$message, "\n"))
+        NULL
+      })
+      if (!is.null(slim_result) && nrow(slim_result) > 0) {
+        write.csv(as.data.frame(slim_result), out_slim_csv, row.names = FALSE)
+        cat(sprintf("[go_slim] level=%d -> %d/%d terms retained, saved to %s\n",
+                     slim_level, nrow(slim_result), length(slim_sig_ids), basename(out_slim_csv)))
+      } else {
+        cat(sprintf("[go_slim] level=%d -> 0 terms retained (해당 level에 남는 term 없음) — CSV 생략.\n", slim_level))
+      }
+    } else {
+      cat("[go_slim] No significant terms to roll up — CSV 생략.\n")
+    }
+  }
+
+  # --- rrvgo 의미론적(semantic) 축약 (up/down 세트에만 적용, "total"은 제외) ---
+  # FDR<fdr_cutoff & FoldEnrichment>fold_enrichment_cutoff로 유의 term 전체를 대상으로
+  # GO DAG 의미 거리 기반 축약(parentTerm)을 계산한다. Jaccard 클러스터링/CMG 엑셀
+  # 내보내기(term_cluster)의 입력(유의 term 전체 목록)은 그대로 유지되고, rrvgo 결과는
+  # 별도 CSV/시각화로만 추가된다(term 목록을 사전에 줄이는 필터로 쓰지 않음).
+  rrvgo_cfg <- config$enrichment$rrvgo
+  rrvgo_enabled <- if (is.null(rrvgo_cfg) || is.null(rrvgo_cfg$enabled)) TRUE else isTRUE(rrvgo_cfg$enabled)
+
+  if (rrvgo_enabled && gene_set %in% c("up", "down") && !is.null(go_results) && nrow(go_results) > 0) {
+    suppressPackageStartupMessages(library(rrvgo))
+
+    rrvgo_fdr       <- ifelse(is.null(rrvgo_cfg$fdr_cutoff), 0.05, rrvgo_cfg$fdr_cutoff)
+    rrvgo_fe        <- ifelse(is.null(rrvgo_cfg$fold_enrichment_cutoff), 2.0, rrvgo_cfg$fold_enrichment_cutoff)
+    rrvgo_method    <- ifelse(is.null(rrvgo_cfg$method), "Rel", rrvgo_cfg$method)
+    rrvgo_threshold <- ifelse(is.null(rrvgo_cfg$threshold), 0.7, rrvgo_cfg$threshold)
+    rrvgo_score_by  <- ifelse(is.null(rrvgo_cfg$score_by), "fdr", rrvgo_cfg$score_by)  # "fdr" | "count"
+
+    go_df_rr <- as.data.frame(go_results)
+    go_df_rr$FoldEnrichment <- compute_fold_enrichment(go_df_rr)
+    rr_sig_ids <- go_df_rr$ID[!is.na(go_df_rr$p.adjust) & go_df_rr$p.adjust < rrvgo_fdr &
+                               !is.na(go_df_rr$FoldEnrichment) & go_df_rr$FoldEnrichment > rrvgo_fe]
+
+    out_rrvgo_csv     <- file.path(output_path, paste0("go_rrvgo_", gene_set, "_", ont, ".csv"))
+    out_rrvgo_treemap <- file.path(output_path, paste0("go_rrvgo_treemap_", gene_set, "_", ont, ".png"))
+    out_rrvgo_scatter <- file.path(output_path, paste0("go_rrvgo_scatter_", gene_set, "_", ont, ".png"))
+
+    if (length(rr_sig_ids) >= 2) {
+      go_df_rr_sig <- go_df_rr[go_df_rr$ID %in% rr_sig_ids, ]
+      rr_scores <- if (rrvgo_score_by == "count") {
+        setNames(go_df_rr_sig$Count, go_df_rr_sig$ID)
+      } else {
+        setNames(-log10(go_df_rr_sig$p.adjust), go_df_rr_sig$ID)
+      }
+
+      rr_result <- tryCatch({
+        simMatrix <- calculateSimMatrix(rr_sig_ids, orgdb = organism_db_name, ont = ont, method = rrvgo_method)
+        reducedTerms <- reduceSimMatrix(simMatrix, scores = rr_scores, threshold = rrvgo_threshold, orgdb = organism_db_name)
+        list(simMatrix = simMatrix, reducedTerms = reducedTerms)
+      }, error = function(e) {
+        cat(paste("[rrvgo] Failed:", e$message, "\n"))
+        NULL
+      })
+
+      if (!is.null(rr_result)) {
+        reducedTerms <- rr_result$reducedTerms
+        write.csv(reducedTerms, out_rrvgo_csv, row.names = FALSE)
+        cat(sprintf("[rrvgo] %d terms -> %d parent groups (threshold=%.2f), saved to %s\n",
+                     length(rr_sig_ids), length(unique(reducedTerms$parent)), rrvgo_threshold, basename(out_rrvgo_csv)))
+
+        sp <- tryCatch(scatterPlot(rr_result$simMatrix, reducedTerms), error = function(e) {
+          cat(paste("[rrvgo] scatterPlot failed:", e$message, "\n"))
+          NULL
+        })
+        if (!is.null(sp)) {
+          ggsave(out_rrvgo_scatter, plot = sp, width = 10, height = 8, bg = "white")
+          cat(sprintf("[rrvgo] Saved scatter plot to %s\n", basename(out_rrvgo_scatter)))
+        }
+
+        tm_ok <- tryCatch({
+          png(out_rrvgo_treemap, width = 12, height = 8, units = "in", res = 300, bg = "white")
+          treemapPlot(reducedTerms)
+          dev.off()
+          TRUE
+        }, error = function(e) {
+          cat(paste("[rrvgo] treemapPlot failed:", e$message, "\n"))
+          if (dev.cur() > 1) dev.off()
+          FALSE
+        })
+        if (isTRUE(tm_ok)) cat(sprintf("[rrvgo] Saved treemap to %s\n", basename(out_rrvgo_treemap)))
+      }
+    } else {
+      cat("[rrvgo] Fewer than 2 significant terms — skipping semantic reduction.\n")
+    }
   }
 
 } else if (opt$task == "kegg") {

@@ -61,6 +61,88 @@ de_analysis:
     filter_padj: null       # 예: 0.05 → padj <= 0.05 유전자만 출력
     filter_basemean: null   # 예: 10   → baseMean >= 10 유전자만 출력
 
+  # ──────────────────────────────────────────────────────────────────
+  # Time-series 분석 (maSigPro) — 시간 경과에 따른 발현 궤적(trajectory) 검정
+  # count 기반 회귀(negative binomial GLM)로 적은 replicate/time point에서도
+  # 안정적으로 동작하도록 설계된 maSigPro를 사용. 시간을 명시적 숫자 컬럼으로
+  # 요구합니다 (문자열 그룹명에서 자동 파싱하지 않음).
+  # ──────────────────────────────────────────────────────────────────
+  time_series:
+    enabled: false
+
+    # 메타데이터의 숫자형 time 컬럼명 (신규 컬럼 필요 — 예: 0, 1, 3, 7 등)
+    time_variable: "time"
+
+    # (선택) 시계열에 쓸 샘플을 특정 그룹(조건)만으로 제한합니다. 한 프로젝트 안에서
+    # 시간축이 다른 여러 시계열(예: acute 0/1/3일 vs chronic 0/24/48시간)을 공존시킬 때
+    # 유용 — 이 경우 Snakemake 기본 슬롯(time_series.enabled)은 하나만 지원하므로,
+    # 두 번째 이후 시계열은 파생 config로 직접 스크립트를 실행해야 함(coexpression_modules
+    # 서브셋 분석과 동일 패턴). null이면 metadata의 전체 그룹을 사용합니다.
+    include_groups: null   # 예: ["Control", "Acute_1D", "Acute_3D"]
+
+    # 여러 시리즈(예: 부위/유전자형)를 동시에 비교할 때 메타데이터의 범주형 컬럼명
+    # null이면 단일 시리즈로 취급
+    series_variable: null
+
+    # 회귀 다항식 차수. "auto" = min(시리즈별 고유 time point 개수 - 1, 2)
+    # 시리즈별로 time point가 3개 미만이면 실행 시 에러로 중단됩니다.
+    degree: "auto"
+
+    # 유의성 기준 (BH-adjusted p-value)
+    q_value: 0.05
+    # R-squared 기준 (회귀 모델이 설명하는 분산 비율)
+    rsq_cutoff: 0.6
+
+    # 유의 유전자를 발현 패턴별로 묶을 클러스터 개수 (see.genes)
+    pattern_k: 6
+
+    # true면 결과를 CMG-SeqViewer용 parquet + staging JSON으로도 내보냄
+    export_seqviewer: true
+
+    # true면 패턴 클러스터별(+전체) GO/KEGG enrichment를 수행해
+    # final_go_results.xlsx(+개별 CSV)를 time_series/ 폴더에 생성
+    enrichment_enabled: true
+
+  # ──────────────────────────────────────────────────────────────────
+  # Coexpression module 분석 — omnibus test로 걸러진 유의 유전자 서브셋에 대해서만
+  # 발현 패턴 기반 클러스터링(DEGreport::degPatterns) 수행.
+  # run_omnibus_test: true 일 때만 의미 있음.
+  # 전체 transcriptome 규모의 WGCNA/CEMiTool은 다루지 않습니다 (샘플 수가 적을 때
+  # 불안정하여 별도 단계로 보류됨).
+  # ──────────────────────────────────────────────────────────────────
+  coexpression_modules:
+    enabled: false
+
+    # (선택) 클러스터링에 쓸 샘플을 특정 그룹(조건)만으로 제한합니다.
+    # 유의 유전자 목록은 그대로 전체 그룹 기준 omnibus 결과를 사용하고,
+    # VST 계산 + degPatterns 클러스터링에 들어가는 "샘플"만 여기 지정한
+    # 그룹으로 제한합니다 (실험적으로 함께 묶는 게 의미 있는 조건들만 선택).
+    # null이면 기존과 동일하게 metadata의 전체 그룹을 사용합니다.
+    include_groups: null   # 예: ["Control", "H2O2", "H2O2+KDS"]
+
+    # (선택) 같은 프로젝트 안에서 include_groups로 여러 서브셋 분석을 각각 별도
+    # seqviewer 데이터셋으로 내보낼 때, alias/parquet 파일명/staging 파일명이
+    # 서로 겹치지 않도록 붙이는 라벨입니다. null이면 기존과 동일한 파일명(단일 분석용).
+    variant_label: null    # 예: "Ctrl-H2O2-KDS"
+
+    # 유의 유전자 필터 기준. null이면 위 padj_cutoff 재사용
+    padj_cutoff: null
+
+    # 유의 유전자가 이보다 적으면 분석을 건너뜁니다 (경고 후 정상 종료)
+    min_genes: 10
+
+    # DEGreport::degPatterns의 minc 파라미터 오버라이드
+    # 기본값(15)은 유의 유전자가 수십 개 수준일 때 클러스터를 조용히 병합/폐기하므로
+    # 이 스케일에 맞춰 낮게 설정합니다.
+    min_cluster_size: 5
+
+    # true면 결과를 CMG-SeqViewer용 parquet + staging JSON으로도 내보냄
+    export_seqviewer: true
+
+    # true면 모듈별(+전체) GO/KEGG enrichment를 수행해
+    # final_go_results.xlsx(+개별 CSV)를 coexpression_modules/ 폴더에 생성
+    enrichment_enabled: true
+
   # 4. Pairwise Comparisons: 실행할 모든 1:1 비교를 [비교군, 기준군] 쌍으로 명시합니다.
   #    Snakemake가 이 목록을 기반으로 각 비교 작업을 생성합니다.
   pairwise_comparisons:
@@ -120,6 +202,120 @@ enrichment:
   
   # 시각화(dotplot, barplot)에 표시할 상위 term 개수
   plot_top_n: 15     # dotplot과 barplot에 표시할 최대 term 개수
+
+  # ──────────────────────────────────────────────────────────────────
+  # GO term clustering (up/down 세트에만 적용, "total"은 제외)
+  # FDR/fold-enrichment로 유의 term만 추린 뒤, term간 유전자 중복도(Jaccard)
+  # 기반으로 clusterProfiler::pairwise_termsim() + enrichplot::treeplot()로
+  # 클러스터링/시각화. GO(BP/CC/MF)에만 적용되고 KEGG에는 적용되지 않음.
+  # ──────────────────────────────────────────────────────────────────
+  term_cluster:
+    enabled: true
+    fdr_cutoff: 0.05              # p.adjust 기준
+    fold_enrichment_cutoff: 2.0   # GeneRatio / BgRatio 기준
+
+    # 기본 모드: Jaccard 유사도 임계값으로 클러스터를 나눔(CMG-SeqViewer 자체 클러스터링
+    # 기본값과 동일 — cmg-seqviewer/docs/UPSTREAM_CLUSTERED_GO_FORMAT.md §3 참고).
+    # 이 값 이상 유사한 term끼리 같은 클러스터로 묶이고, 나머지는 싱글톤 처리됨.
+    # 명시적으로 null로 두면 대신 n_clusters(고정 k)로 자른다(하위호환).
+    similarity_cutoff: 0.7
+    n_clusters: 5                 # similarity_cutoff가 null일 때만 사용하는 고정 클러스터 개수
+    hclust_method: average        # CMG-SeqViewer 기본값과 동일(average linkage)
+
+    # CSV/CMG용 엑셀(final_go_clustered_results.xlsx)은 이 값과 무관하게 유의 term
+    # 전체(모든 클러스터 + 싱글톤)를 담는다. 아래 값은 PNG treeplot 시각화에서 대표로
+    # 보여줄 term 개수 상한일 뿐이다(숫자만, null/전체 표시 불가). treeplot()이 term이 많아질수록
+    # 처리 시간이 급격히 늘고(100개일 때 약 1분) 200~500개 구간에서 내부 에러도 발생하므로
+    # 너무 크게 잡지 않는 것을 권장(실측 기준 100 이하 권장).
+    show_top_n: 30
+
+  # ──────────────────────────────────────────────────────────────────
+  # GO Slim rollup (up/down 세트에만 적용, "total"은 제외)
+  # FDR/fold-enrichment로 유의 term만 추린 뒤 clusterProfiler::gofilter()로 GO DAG level
+  # 기준 상위 범주만 남겨서, 세부 term에 파묻히기 전에 "이 실험이 어떤 상위 생물학적
+  # 프로세스를 주로 건드리는가"를 bar chart 한 장으로 파악한다(go_slim_overview_{ont}.png).
+  # ──────────────────────────────────────────────────────────────────
+  go_slim:
+    enabled: true
+    fdr_cutoff: 0.05              # p.adjust 기준
+    fold_enrichment_cutoff: 2.0   # GeneRatio / BgRatio 기준
+    # GO DAG level. 낮을수록(예: 2) term이 더 적고 더 추상적, 데이터셋에 따라 0개로
+    # 비어버릴 수 있음(실측 확인). level 3을 시작점으로 권장하되, 결과 term이 너무
+    # 많거나 적으면 조정할 것 — 문서 상 수치(레벨당 term 개수)는 데이터셋마다 편차가 큼.
+    level: 3
+
+  # ──────────────────────────────────────────────────────────────────
+  # rrvgo 의미론적(semantic) 축약 (up/down 세트에만 적용, "total"은 제외)
+  # FDR/fold-enrichment로 유의 term 전체를 대상으로 GO DAG 의미 거리 기반 축약을 계산해
+  # parentTerm 라벨(treemap/scatter plot)을 부여한다. term_cluster(Jaccard)의 입력이나
+  # CMG 엑셀 내보내기용 유의 term 목록을 줄이는 데는 쓰이지 않음 — 별도 병렬 트랙으로
+  # CSV(go_rrvgo_{geneset}_{ontology}.csv) + 시각화만 추가로 생성한다.
+  # 주의: term이 많으면(500개 안팎) 유사도 계산에 term당 약 0.1초, 즉 조합당 40~50초
+  # 정도 걸릴 수 있음(실측). 프로젝트가 크면 pair × geneset × ontology 조합 수만큼 누적됨.
+  # ──────────────────────────────────────────────────────────────────
+  rrvgo:
+    enabled: true
+    fdr_cutoff: 0.05              # p.adjust 기준
+    fold_enrichment_cutoff: 2.0   # GeneRatio / BgRatio 기준
+    method: Rel                   # Resnik / Lin / Rel / Jiang / Wang (Rel 권장 시작점)
+    threshold: 0.7                # 낮을수록 공격적으로 축약(0.5~0.9 사이에서 조정)
+    score_by: fdr                 # "fdr"(=-log10 FDR, 통계적으로 강한 term을 대표로) 또는 "count"
+
+  # ──────────────────────────────────────────────────────────────────
+  # Cross-Condition GO 비교 (docs/plan_cross_condition_go.md 참고)
+  # pairwise_comparisons가 3개 이상일 때(dose-response, time-course 등) 각 비교의
+  # GO enrichment 결과를 서로 대조해 "여러 조건에서 공통으로 조절되는 term",
+  # "그룹 간 방향 역전", "특정 조건에만 있는 term"을 찾는다. 기본은 비활성 —
+  # 조건이 2개뿐이면 의미가 없고, 대부분의 project가 아직 groups/exclusives 같은
+  # 프로젝트별 설정을 필요로 하기 때문에 명시적으로 켜야 한다.
+  # 11_run_group_enrichment.R(ts/coexpr)과는 다른 축이다 — 이쪽은 "독립적으로 실행된
+  # pairwise 비교들" 사이를 비교하고, 그쪽은 "한 실험설계 안의 그룹(cluster/module)"을 다룬다.
+  # ──────────────────────────────────────────────────────────────────
+  cross_condition:
+    enabled: false
+    conditions: null              # null이면 pairwise_comparisons 전체({compare}_vs_{base}) 사용
+    go_ontologies: [BP]           # GO ontology 외에 "KEGG"도 추가 가능(예: [BP, KEGG]) —
+                                   # KEGG는 term 수가 적어 아래 semantic_filtering은 자동 생략됨
+    fdr_cutoff: 0.05              # p.adjust 기준
+    fold_enrichment_cutoff: 2.0   # GeneRatio / BgRatio 기준
+    min_conditions_common: null   # null이면 round(조건 수 * 0.75)
+    sparsity_warn_threshold: 20   # 조건×방향 유의 term 수가 이 미만이면 경고 로그
+    gene_overlap_jaccard_warn: 0.3  # 방향 역전 term의 gene Jaccard가 이 미만이면 low_overlap 플래그
+
+    # 방향 역전/혼재 분석용 상위 그룹 정의. 예: time-course면 early/late, dose-response면
+    # low/high dose. 비워두면(={}) 방향 역전/혼재 분석은 건너뛰고 공통 term 분석만 수행.
+    groups: {}
+    # groups: {early: [cond_A, cond_B], late: [cond_C, cond_D]}
+
+    # [group_A, group_B, 방향] — group_A에서 해당 방향, group_B에서 반대 방향인 term을 탐지
+    flips: []
+    # flips: [[early, late, UP], [early, late, DOWN]]
+
+    # 특정 조건 조합에만(or에는 없이) 나타나는 term
+    exclusives: []
+    # exclusives:
+    #   - label: early_only_up
+    #     target: [cond_A, cond_B]
+    #     absent: [cond_C, cond_D]
+    #     direction: UP
+
+    visualization:
+      enabled: true
+      dotplot_max_terms: 40      # 후보 term이 이 값 초과면 dot plot 대신 heatmap으로 자동 전환
+      cluster_terms: true        # 조건별 signed -log10(FDR) 패턴이 비슷한 GO term끼리 축에서
+                                  # 인접하도록 묶음(heatmap은 덴드로그램도 함께 표시). false면
+                                  # 기존처럼 유의성(FDR) 순으로만 정렬
+      cluster_method: average    # hclust 연결 방식(average/complete/ward.D2 등)
+
+    # common_strict(UP/DOWN 각각) 결과 term_id 목록에 rrvgo를 재적용해 의미적으로 중복되는
+    # term을 하나의 대표(parent) term으로 축약한다("Semantic Filtered" dot plot/heatmap에 사용).
+    # rrvgo 원본 인자(method/threshold)는 기본적으로 enrichment.rrvgo 설정을 그대로 재사용하고,
+    # 여기서 다르게 쓰고 싶을 때만 명시적으로 덮어쓴다. KEGG에는 적용되지 않음(term 수가 적어
+    # 의미 축약의 실익이 낮음).
+    semantic_filtering:
+      enabled: true
+      method: null      # null이면 enrichment.rrvgo.method 사용
+      threshold: null   # null이면 enrichment.rrvgo.threshold 사용
 
 # -------------------------
 # QC Plots Settings

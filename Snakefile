@@ -72,6 +72,19 @@ rule all:
             if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
                 and config.get("enrichment", {}).get("cross_condition", {}).get("enabled", False))
             else []),
+        ([OUTPUT_DIR / "fig_bundles/.integrated_common_bundle_done.flag"]
+            if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
+                and len(config.get("de_analysis", {}).get("pairwise_comparisons", [])) >= 2)
+            else []),
+        ([OUTPUT_DIR / "fig_bundles/.time_series_group_bundle_done.flag"]
+            if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
+                and config.get("de_analysis", {}).get("time_series", {}).get("enabled", False))
+            else []),
+        ([OUTPUT_DIR / "fig_bundles/.coexpression_modules_group_bundle_done.flag"]
+            if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
+                and config.get("de_analysis", {}).get("run_omnibus_test", False)
+                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False))
+            else []),
 
         # 2b. Pairwise QC Plots (if enabled)
         expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/.pairwise_qc_done.flag", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else [],
@@ -240,6 +253,29 @@ rule run_timeseries_enrichment:
     shell:
         "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster {params.out_dir} > {log} 2>&1"
 
+# Rule 1b-3-fig: fig-atlas 그림 번들 export — time-series 클러스터별 heatmap/GO
+# (export.fig_atlas_bundle.enabled 시). 계약서: integrated_bundle_contract.md.
+rule export_timeseries_group_bundle:
+    input:
+        script = "src/analysis/16_export_integrated_group_bundle.R",
+        config_file = CONFIG_FILE,
+        csv = OUTPUT_DIR / "time_series/time_series_significant_genes.csv",
+        # go_bp_*_dot_bundle/go_kegg_*_bar_chart_bundle의 소스(go_termcluster_*.csv,
+        # kegg_enrichment_*.csv)는 11_run_group_enrichment.R이 만든다 — 이 규칙이 먼저
+        # 끝나야만 그 파일들이 존재하므로 명시적으로 의존성을 건다(안 그러면 Snakemake가
+        # 두 규칙을 병렬/임의 순서로 스케줄링해 GO 번들이 조용히 스킵될 수 있음).
+        enrichment_xlsx = OUTPUT_DIR / "time_series/final_go_results.xlsx"
+    output:
+        flag = touch(OUTPUT_DIR / "fig_bundles/.time_series_group_bundle_done.flag")
+    params:
+        out_dir = str(OUTPUT_DIR / "time_series")
+    log:
+        OUTPUT_DIR / "logs/16_export_timeseries_group_bundle.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster ts_cluster {params.out_dir} > {log} 2>&1"
+
 # Rule 1b-4: Coexpression 모듈별(+전체) GO/KEGG enrichment
 # (coexpression_modules.enrichment_enabled 시에만 rule all에 편입)
 rule run_coexpression_enrichment:
@@ -259,6 +295,27 @@ rule run_coexpression_enrichment:
         R_ENV_NAME
     shell:
         "Rscript {input.script} {input.config_file} {input.csv} module_id module {params.out_dir} > {log} 2>&1"
+
+# Rule 1b-4-fig: fig-atlas 그림 번들 export — coexpression 모듈별 heatmap/GO
+# (export.fig_atlas_bundle.enabled 시). 계약서: integrated_bundle_contract.md.
+rule export_coexpression_group_bundle:
+    input:
+        script = "src/analysis/16_export_integrated_group_bundle.R",
+        config_file = CONFIG_FILE,
+        csv = OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv",
+        # 위 export_timeseries_group_bundle과 동일한 이유 — 11_run_group_enrichment.R이
+        # go_termcluster_*.csv/kegg_enrichment_*.csv를 다 쓴 뒤에만 실행되도록 보장.
+        enrichment_xlsx = OUTPUT_DIR / "coexpression_modules/final_go_results.xlsx"
+    output:
+        flag = touch(OUTPUT_DIR / "fig_bundles/.coexpression_modules_group_bundle_done.flag")
+    params:
+        out_dir = str(OUTPUT_DIR / "coexpression_modules")
+    log:
+        OUTPUT_DIR / "logs/16_export_coexpression_group_bundle.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} {input.csv} module_id module coexp_module {params.out_dir} > {log} 2>&1"
 
 # Rule 1c: Run Pairwise DE
 # Note: If final_de_results.csv already exists, Snakemake will skip this rule
@@ -692,6 +749,31 @@ rule export_de_go_bundle:
         R_ENV_NAME
     shell:
         "Rscript {input.script} {input.config_file} {params.compare} {params.base} {params.pair_output_dir} > {log} 2>&1"
+
+
+# Rule 6c: fig-atlas 그림 번들 export — 프로젝트 전체(count_summary/venn/common DEG
+# heatmap, 계약서: integrated_bundle_contract.md §2/§3). pairwise_comparisons가 모두
+# 끝난 뒤 한 번만 실행.
+rule export_integrated_common_bundle:
+    input:
+        script = "src/analysis/15_export_integrated_common_bundle.R",
+        config_file = CONFIG_FILE,
+        de_results = expand(OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv", pair=PAIRS),
+        # Filtered_common_deg_genes_heatmap_bundle의 소스 — multi_group_export가 켜져
+        # 있을 때만 존재하므로, 켜져 있으면 반드시 이 규칙보다 먼저 만들어지도록 명시적
+        # 의존성을 건다(안 그러면 DAG 순서가 보장되지 않아 스크립트가 조용히 스킵함).
+        multi_group_csv = ([OUTPUT_DIR / "multi_group_result.csv"]
+            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
+                and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
+            else [])
+    output:
+        flag = touch(OUTPUT_DIR / "fig_bundles/.integrated_common_bundle_done.flag")
+    log:
+        OUTPUT_DIR / "logs/15_export_integrated_common_bundle.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} > {log} 2>&1"
 
 
 # Rule 8: Summary Report — 모든 pairwise 완료 후 통합 HTML 리포트 생성

@@ -282,6 +282,11 @@ enrichment:
     sparsity_warn_threshold: 20   # 조건×방향 유의 term 수가 이 미만이면 경고 로그
     gene_overlap_jaccard_warn: 0.3  # 방향 역전 term의 gene Jaccard가 이 미만이면 low_overlap 플래그
 
+    # true면 common/flip/exclusive/mixed 결과를 final_cross_condition_go_results.xlsx로
+    # 취합하고(Category/Ontology 컬럼 포함 시트별 구성), CMG-SeqViewer용 parquet + staging
+    # JSON으로도 내보냄
+    export_seqviewer: true
+
     # 방향 역전/혼재 분석용 상위 그룹 정의. 예: time-course면 early/late, dose-response면
     # low/high dose. 비워두면(={}) 방향 역전/혼재 분석은 건너뛰고 공통 term 분석만 수행.
     groups: {}
@@ -301,11 +306,18 @@ enrichment:
 
     visualization:
       enabled: true
-      dotplot_max_terms: 40      # 후보 term이 이 값 초과면 dot plot 대신 heatmap으로 자동 전환
+      # heatmap은 항상 후보 term 전체로 생성되고, dot plot은 그중 UP/DOWN 방향별로 각각
+      # FDR 기준 상위 dotplot_max_terms/2개씩(방향 불균형 시 한쪽으로 쏠리는 것 방지) 뽑아서
+      # 별도로 재클러스터링해서 따로 생성 — 둘 다 항상 같이 만들어짐
+      dotplot_max_terms: 60   # 기본 UP 30개 + DOWN 30개
       cluster_terms: true        # 조건별 signed -log10(FDR) 패턴이 비슷한 GO term끼리 축에서
                                   # 인접하도록 묶음(heatmap은 덴드로그램도 함께 표시). false면
                                   # 기존처럼 유의성(FDR) 순으로만 정렬
       cluster_method: average    # hclust 연결 방식(average/complete/ward.D2 등)
+      # heatmap 색상은 연속 스케일이 아니라 FDR<0.05/0.01/0.001 x UP/DOWN 7단계로 이산화된다
+      # (고정값, config로 조정 불가) — FDR이 heavy-tailed라(예: 1e-10과 1e-62가 같은 매트릭스에
+      # 공존) 연속 스케일을 쓰면 극단값 하나가 나머지 셀을 다 흐리게 눌러버리는 문제가 있었다.
+      # dot plot은 여전히 연속 스케일(sign(dir) x -log10 FDR)을 그대로 사용한다.
 
     # common_strict(UP/DOWN 각각) 결과 term_id 목록에 rrvgo를 재적용해 의미적으로 중복되는
     # term을 하나의 대표(parent) term으로 축약한다("Semantic Filtered" dot plot/heatmap에 사용).
@@ -412,6 +424,22 @@ export:
   # 자세한 내용: pipeline-integration.md
   # ──────────────────────────────────────────────────────────────────
   seqviewer: true
+
+  # ──────────────────────────────────────────────────────────────────
+  # fig-atlas 그림 번들 내보내기 (선택 사항)
+  #
+  # true로 설정하면 pairwise/cross_condition 결과를 fig-atlas가 바로 소비할 수 있는
+  # "번들" 폴더(inputs/data.csv + metadata/metadata.yaml)로 재포장합니다:
+  #   output/{project_id}/fig_bundles/
+  #     ├── {compare}_vs_{base}/   ← pairwise마다: volcano/go_cluster_dot/go_bar/rrvgo_treemap
+  #     └── cross_condition/       ← cross_condition.enabled 시: heatmap/dotplot/upset
+  #
+  # CMG-SeqViewer에서 매번 같은 파라미터로 반복 탐색해 fig-atlas용 폴더를 사람이 직접
+  # 구성하던 작업을 대체합니다. 계약서(de_go_bundle_contract.md,
+  # cross_condition_bundle_contract.md)의 폴더/컬럼 스펙을 그대로 따릅니다.
+  # ──────────────────────────────────────────────────────────────────
+  fig_atlas_bundle:
+    enabled: false
 
 # -------------------------
 # Upload Options

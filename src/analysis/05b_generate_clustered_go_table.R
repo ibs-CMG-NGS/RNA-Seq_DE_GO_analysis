@@ -94,7 +94,7 @@ sheet_summary <- list()
 
 for (gs in gene_sets) {
   for (ont in ontologies) {
-    in_csv <- file.path(output_dir, paste0("go_termcluster_", gs, "_", ont, ".csv"))
+    in_csv <- file.path(output_dir, "enrichment", paste0("go_termcluster_", gs, "_", ont, ".csv"))
     if (!file.exists(in_csv)) next
     d <- read.csv(in_csv, stringsAsFactors = FALSE)
     if (nrow(d) == 0) next

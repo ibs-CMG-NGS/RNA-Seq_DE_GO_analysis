@@ -36,21 +36,25 @@ if (!slim_enabled) {
 slim_level  <- ifelse(is.null(slim_cfg$level), 3, slim_cfg$level)
 ontologies  <- config$enrichment$go_ontologies %||% c("BP", "CC", "MF")
 
+enrichment_dir <- file.path(output_dir, "enrichment")
+plots_dir      <- file.path(output_dir, "plots")
+dir.create(plots_dir, showWarnings = FALSE, recursive = TRUE)
+
 cat(paste("[05c_generate_go_slim_overview]", compare_group, "vs", base_group, "\n"))
 
 save_placeholder <- function(ont, msg) {
   empty_plot <- ggplot() +
     annotate("text", x = 0.5, y = 0.5, label = msg, size = 5, hjust = 0.5) +
     theme_void()
-  ggsave(file.path(output_dir, paste0("go_slim_overview_", ont, ".png")), plot = empty_plot,
+  ggsave(file.path(plots_dir, paste0("go_slim_overview_", ont, ".png")), plot = empty_plot,
          width = 10, height = 6, bg = "white")
 }
 
 # BP는 항상 파일이 생성됨을 보장한다(Snakemake output으로 이 파일 하나만 추적하므로).
 # CC/MF는 결과가 있을 때만 생성되는 보너스 산출물.
 for (ont in ontologies) {
-  up_csv   <- file.path(output_dir, paste0("go_slim_up_", ont, ".csv"))
-  down_csv <- file.path(output_dir, paste0("go_slim_down_", ont, ".csv"))
+  up_csv   <- file.path(enrichment_dir, paste0("go_slim_up_", ont, ".csv"))
+  down_csv <- file.path(enrichment_dir, paste0("go_slim_down_", ont, ".csv"))
 
   up_df   <- if (file.exists(up_csv))   read.csv(up_csv,   stringsAsFactors = FALSE) else NULL
   down_df <- if (file.exists(down_csv)) read.csv(down_csv, stringsAsFactors = FALSE) else NULL
@@ -66,7 +70,7 @@ for (ont in ontologies) {
     if (!is.null(down_df) && nrow(down_df) > 0) mutate(down_df, direction = "Down") else NULL
   )
 
-  out_csv <- file.path(output_dir, paste0("go_slim_overview_", ont, ".csv"))
+  out_csv <- file.path(enrichment_dir, paste0("go_slim_overview_", ont, ".csv"))
   write.csv(combined, out_csv, row.names = FALSE)
 
   plot_df <- combined %>%
@@ -84,7 +88,7 @@ for (ont in ontologies) {
          x = NULL, y = "Gene Count", fill = "Direction") +
     theme_minimal(base_size = 12)
 
-  out_png <- file.path(output_dir, paste0("go_slim_overview_", ont, ".png"))
+  out_png <- file.path(plots_dir, paste0("go_slim_overview_", ont, ".png"))
   plot_height <- max(6, nrow(plot_df) * 0.3)
   ggsave(out_png, plot = p, width = 10, height = plot_height, bg = "white")
 
@@ -96,7 +100,7 @@ for (ont in ontologies) {
 
 # BP가 go_ontologies 설정에서 아예 빠진 경우를 위한 안전장치 — Snakemake가 이 파일 하나만
 # output으로 추적하므로 항상 존재를 보장해야 한다.
-if (!"BP" %in% ontologies && !file.exists(file.path(output_dir, "go_slim_overview_BP.png"))) {
+if (!"BP" %in% ontologies && !file.exists(file.path(plots_dir, "go_slim_overview_BP.png"))) {
   save_placeholder("BP", "BP not included in enrichment.go_ontologies config.")
 }
 

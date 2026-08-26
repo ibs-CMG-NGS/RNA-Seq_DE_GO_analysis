@@ -57,12 +57,21 @@ rule all:
             if config.get("enrichment", {}).get("rrvgo", {}).get("enabled", True) else []),
 
         # GO Slim overview (up/down 대칭 bar chart, go_slim.enabled 시)
-        (expand(OUTPUT_DIR / "pairwise/{pair}/go_slim_overview_BP.png", pair=PAIRS)
+        (expand(OUTPUT_DIR / "pairwise/{pair}/plots/go_slim_overview_BP.png", pair=PAIRS)
             if config.get("enrichment", {}).get("go_slim", {}).get("enabled", True) else []),
 
         # Cross-Condition GO 비교 (조건 3개 이상 dose-response/time-course에서 유용, 옵트인)
-        ([OUTPUT_DIR / "cross_condition/condition_count_log.txt"]
+        ([OUTPUT_DIR / "cross_condition/condition_count_log.txt",
+          OUTPUT_DIR / "cross_condition/final_cross_condition_go_results.xlsx"]
             if config.get("enrichment", {}).get("cross_condition", {}).get("enabled", False) else []),
+
+        # fig-atlas 그림 번들 export (export.fig_atlas_bundle.enabled 시)
+        (expand(OUTPUT_DIR / "pairwise/{pair}/.fig_bundle_export_done.flag", pair=PAIRS)
+            if config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False) else []),
+        ([OUTPUT_DIR / "cross_condition/.fig_bundle_export_done.flag"]
+            if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
+                and config.get("enrichment", {}).get("cross_condition", {}).get("enabled", False))
+            else []),
 
         # 2b. Pairwise QC Plots (if enabled)
         expand(OUTPUT_DIR / "pairwise/{pair}/qc_plots/.pairwise_qc_done.flag", pair=PAIRS) if config.get("qc_plots", {}).get("generate_pairwise_qc", False) else [],
@@ -411,8 +420,8 @@ rule go_enrichment:
         # 각 pair별 DE 결과에 의존
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
-        go_csv = OUTPUT_DIR / "pairwise/{pair}/go_enrichment_{geneset}_{ontology}.csv",
-        go_plot = OUTPUT_DIR / "pairwise/{pair}/go_dotplot_{geneset}_{ontology}.png"
+        go_csv = OUTPUT_DIR / "pairwise/{pair}/enrichment/go_enrichment_{geneset}_{ontology}.csv",
+        go_plot = OUTPUT_DIR / "pairwise/{pair}/plots/go_dotplot_{geneset}_{ontology}.png"
     params:
         output_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair)
     log:
@@ -432,8 +441,8 @@ rule kegg_enrichment:
         config_file = CONFIG_FILE,
         de_results = OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv"
     output:
-        kegg_csv = OUTPUT_DIR / "pairwise/{pair}/kegg_enrichment_{geneset}.csv",
-        kegg_plot = OUTPUT_DIR / "pairwise/{pair}/kegg_dotplot_{geneset}.png"
+        kegg_csv = OUTPUT_DIR / "pairwise/{pair}/enrichment/kegg_enrichment_{geneset}.csv",
+        kegg_plot = OUTPUT_DIR / "pairwise/{pair}/plots/kegg_dotplot_{geneset}.png"
     params:
         output_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair)
     log:
@@ -452,13 +461,13 @@ rule enrichment_done:
     input:
         # 모든 GO 결과물
         expand(
-            OUTPUT_DIR / "pairwise/{{pair}}/go_enrichment_{geneset}_{ontology}.csv",
+            OUTPUT_DIR / "pairwise/{{pair}}/enrichment/go_enrichment_{geneset}_{ontology}.csv",
             geneset = config.get("enrichment", {}).get("gene_lists", []),
             ontology = config.get("enrichment", {}).get("go_ontologies", [])
         ),
         # 모든 KEGG 결과물
         expand(
-            OUTPUT_DIR / "pairwise/{{pair}}/kegg_enrichment_{geneset}.csv",
+            OUTPUT_DIR / "pairwise/{{pair}}/enrichment/kegg_enrichment_{geneset}.csv",
             geneset = config.get("enrichment", {}).get("gene_lists", [])
         )
     output:
@@ -474,7 +483,7 @@ rule go_barplots:
         # [수정] 플래그 파일 대신 실제 CSV 파일들을 입력으로 받음
         # enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag",
         go_csvs = lambda wildcards: expand(
-            OUTPUT_DIR / "pairwise/{pair}/go_enrichment_{geneset}_{ontology}.csv",
+            OUTPUT_DIR / "pairwise/{pair}/enrichment/go_enrichment_{geneset}_{ontology}.csv",
             pair=wildcards.pair,
             geneset=config.get("enrichment", {}).get("gene_lists", []),
             ontology=config.get("enrichment", {}).get("go_ontologies", [])
@@ -497,7 +506,7 @@ rule generate_go_summary_table:
         config_file = CONFIG_FILE,
         enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag",
         go_csvs = lambda wildcards: expand(
-            OUTPUT_DIR / "pairwise/{pair}/go_enrichment_{geneset}_{ontology}.csv",
+            OUTPUT_DIR / "pairwise/{pair}/enrichment/go_enrichment_{geneset}_{ontology}.csv",
             pair=wildcards.pair,
             geneset=config.get("enrichment", {}).get("gene_lists", []),
             ontology=config.get("enrichment", {}).get("go_ontologies", [])
@@ -575,7 +584,7 @@ rule generate_go_slim_overview:
     output:
         # BP는 스크립트가 항상 생성을 보장(결과가 없어도 placeholder). CC/MF는 보너스 산출물이라
         # 존재 여부와 무관하게 이 규칙의 output으로는 추적하지 않는다.
-        overview_bp = OUTPUT_DIR / "pairwise/{pair}/go_slim_overview_BP.png"
+        overview_bp = OUTPUT_DIR / "pairwise/{pair}/plots/go_slim_overview_BP.png"
     params:
         compare = lambda wildcards: wildcards.pair.split('_vs_')[0],
         base = lambda wildcards: wildcards.pair.split('_vs_')[1],
@@ -601,14 +610,40 @@ rule run_cross_condition_comparison:
         # 프로젝트 전체를 대상으로 한 번만 실행됨).
         enrichment_flags = expand(OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag", pair=PAIRS)
     output:
-        # condition_count_log.txt는 스크립트가 항상 마지막에 생성을 보장하는 유일한 고정
-        # 파일이다(그 외 common_*/flip_*/exclusive_* 등은 groups/flips/exclusives 설정에
-        # 따라 개수가 달라지는 조건부 산출물이라 정식 output으로 선언할 수 없음).
-        log_summary = OUTPUT_DIR / "cross_condition/condition_count_log.txt"
+        # condition_count_log.txt와 final_cross_condition_go_results.xlsx는 스크립트가 항상
+        # (결과가 0건이어도 "No Results" 시트로) 생성을 보장하는 고정 파일이다(그 외
+        # common_*/flip_*/exclusive_* 개별 CSV는 groups/flips/exclusives 설정에 따라 개수가
+        # 달라지는 조건부 산출물이라 정식 output으로 선언할 수 없음 — xlsx가 이들을 취합한
+        # 고정 산출물 역할을 한다).
+        log_summary = OUTPUT_DIR / "cross_condition/condition_count_log.txt",
+        xlsx = OUTPUT_DIR / "cross_condition/final_cross_condition_go_results.xlsx",
+        staging = ([OUTPUT_DIR / "seqviewer/staging/cross_condition_entries.json"]
+            if config.get("enrichment", {}).get("cross_condition", {}).get("export_seqviewer", True)
+            else [])
     params:
         output_dir = str(OUTPUT_DIR / "cross_condition")
     log:
         OUTPUT_DIR / "logs/12_run_cross_condition_comparison.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} {params.output_dir} > {log} 2>&1"
+
+
+# Rule 5f: fig-atlas 그림 번들 export — cross-condition (export.fig_atlas_bundle.enabled 시).
+# cross_condition_plot_data_semantic_*.csv/upset_membership_*.csv를 계약서
+# (cross_condition_bundle_contract.md) 폴더 형식으로 재포장.
+rule export_cross_condition_bundle:
+    input:
+        script = "src/analysis/14_export_cross_condition_bundle.R",
+        config_file = CONFIG_FILE,
+        log_summary = OUTPUT_DIR / "cross_condition/condition_count_log.txt"
+    output:
+        flag = touch(OUTPUT_DIR / "cross_condition/.fig_bundle_export_done.flag")
+    params:
+        output_dir = str(OUTPUT_DIR / "cross_condition")
+    log:
+        OUTPUT_DIR / "logs/14_export_cross_condition_bundle.log"
     conda:
         R_ENV_NAME
     shell:
@@ -631,6 +666,28 @@ rule export_seqviewer_pair:
         pair_output_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair)
     log:
         OUTPUT_DIR / "pairwise/{pair}/logs/06_export_seqviewer.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} {input.config_file} {params.compare} {params.base} {params.pair_output_dir} > {log} 2>&1"
+
+
+# Rule 6b: fig-atlas 그림 번들 export — pairwise DE/GO/KEGG/rrvgo (export.fig_atlas_bundle.enabled 시).
+# final_de_results.xlsx + enrichment/*.csv를 계약서(de_go_bundle_contract.md) 폴더 형식으로 재포장.
+rule export_de_go_bundle:
+    input:
+        script = "src/analysis/13_export_de_go_bundle.R",
+        config_file = CONFIG_FILE,
+        de_xlsx = OUTPUT_DIR / "pairwise/{pair}/final_de_results.xlsx",
+        enrichment_flag = OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag"
+    output:
+        flag = touch(OUTPUT_DIR / "pairwise/{pair}/.fig_bundle_export_done.flag")
+    params:
+        compare = lambda wildcards: wildcards.pair.split('_vs_')[0],
+        base = lambda wildcards: wildcards.pair.split('_vs_')[1],
+        pair_output_dir = lambda wildcards: str(OUTPUT_DIR / "pairwise" / wildcards.pair)
+    log:
+        OUTPUT_DIR / "pairwise/{pair}/logs/13_export_de_go_bundle.log"
     conda:
         R_ENV_NAME
     shell:
@@ -681,6 +738,10 @@ rule aggregate_seqviewer:
             if (config.get("de_analysis", {}).get("run_omnibus_test", False)
                 and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False)
                 and config.get("de_analysis", {}).get("coexpression_modules", {}).get("export_seqviewer", True))
+            else [],
+        cc_staging = lambda wildcards: [OUTPUT_DIR / "seqviewer/staging/cross_condition_entries.json"]
+            if (config.get("enrichment", {}).get("cross_condition", {}).get("enabled", False)
+                and config.get("enrichment", {}).get("cross_condition", {}).get("export_seqviewer", True))
             else []
     output:
         flag = touch(OUTPUT_DIR / "seqviewer/.seqviewer_done.flag")
@@ -722,9 +783,10 @@ rule upload_to_gdrive:
             if config.get("enrichment", {}).get("term_cluster", {}).get("enabled", True) else []),
         go_rrvgo_clustered_tables = (expand(OUTPUT_DIR / "pairwise/{pair}/final_go_rrvgo_clustered_results.xlsx", pair=PAIRS)
             if config.get("enrichment", {}).get("rrvgo", {}).get("enabled", True) else []),
-        go_slim_overviews = (expand(OUTPUT_DIR / "pairwise/{pair}/go_slim_overview_BP.png", pair=PAIRS)
+        go_slim_overviews = (expand(OUTPUT_DIR / "pairwise/{pair}/plots/go_slim_overview_BP.png", pair=PAIRS)
             if config.get("enrichment", {}).get("go_slim", {}).get("enabled", True) else []),
-        cross_condition = ([OUTPUT_DIR / "cross_condition/condition_count_log.txt"]
+        cross_condition = ([OUTPUT_DIR / "cross_condition/condition_count_log.txt",
+                             OUTPUT_DIR / "cross_condition/final_cross_condition_go_results.xlsx"]
             if config.get("enrichment", {}).get("cross_condition", {}).get("enabled", False) else []),
         # Force ordering: without these, upload_to_gdrive is a DAG sibling of
         # the seqviewer export jobs (not a dependent), so Snakemake can finish

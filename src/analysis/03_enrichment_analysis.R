@@ -56,6 +56,13 @@ cat(paste("Species:", config$species, "\n"))
 output_path <- opt$output_dir
 dir.create(output_path, showWarnings = FALSE, recursive = TRUE)
 
+# 중간 산출물(geneset x ontology 조합으로 개수가 곱해지는 CSV/PNG)은 pair 루트가 아니라
+# enrichment/(CSV)·plots/(PNG) 서브폴더에 저장해 루트를 final_*.xlsx 등 요약본 위주로 정리한다.
+enrichment_dir <- file.path(output_path, "enrichment")
+plots_dir      <- file.path(output_path, "plots")
+dir.create(enrichment_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(plots_dir,      showWarnings = FALSE, recursive = TRUE)
+
 # --- 1b. Load remaining libraries and define variables ---
 if (!"databases" %in% names(config) || !config$species %in% names(config$databases)) {
     stop("[FATAL] 'databases' section or species entry missing in config.")
@@ -147,7 +154,7 @@ if (nrow(gene_list) == 0) {
       geneID = character(),
       Count = integer()
     )
-    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    write.csv(empty_df, file.path(enrichment_dir, out_csv), row.names = FALSE)
     
     # Placeholder plot
     empty_plot <- ggplot() + 
@@ -157,7 +164,7 @@ if (nrow(gene_list) == 0) {
                             ", |log2FC| > ", config$de_analysis$log2fc_cutoff, ")"), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+    ggsave(file.path(plots_dir, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
     
   } else if (opt$task == "kegg") {
     out_csv <- paste0("kegg_enrichment_", gene_set, ".csv")
@@ -175,7 +182,7 @@ if (nrow(gene_list) == 0) {
       geneID = character(),
       Count = integer()
     )
-    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    write.csv(empty_df, file.path(enrichment_dir, out_csv), row.names = FALSE)
     
     # Placeholder plot
     empty_plot <- ggplot() + 
@@ -185,7 +192,7 @@ if (nrow(gene_list) == 0) {
                             ", |log2FC| > ", config$de_analysis$log2fc_cutoff, ")"), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+    ggsave(file.path(plots_dir, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
   
   cat("Empty output files created successfully.\n")
@@ -305,7 +312,7 @@ if (length(entrez_ids) == 0) {
       geneID = character(),
       Count = integer()
     )
-    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    write.csv(empty_df, file.path(enrichment_dir, out_csv), row.names = FALSE)
     
     # Placeholder plot
     empty_plot <- ggplot() + 
@@ -314,7 +321,7 @@ if (length(entrez_ids) == 0) {
                             "Gene ID type: ", gene_id_type), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+    ggsave(file.path(plots_dir, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
     
   } else if (opt$task == "kegg") {
     out_csv <- paste0("kegg_enrichment_", gene_set, ".csv")
@@ -332,7 +339,7 @@ if (length(entrez_ids) == 0) {
       geneID = character(),
       Count = integer()
     )
-    write.csv(empty_df, file.path(output_path, out_csv), row.names = FALSE)
+    write.csv(empty_df, file.path(enrichment_dir, out_csv), row.names = FALSE)
     
     # Placeholder plot
     empty_plot <- ggplot() + 
@@ -341,7 +348,7 @@ if (length(entrez_ids) == 0) {
                             "Gene ID type: ", gene_id_type), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+    ggsave(file.path(plots_dir, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
   
   cat("Empty output files created successfully.\n")
@@ -432,7 +439,7 @@ if (opt$task == "go") {
   
   # CSV 저장 (모든 결과 저장)
   out_csv <- paste0("go_enrichment_", gene_set, "_", ont, ".csv")
-  write.csv(as.data.frame(go_results), file.path(output_path, out_csv))
+  write.csv(as.data.frame(go_results), file.path(enrichment_dir, out_csv))
   cat(sprintf("Saved %d GO terms to %s\n", nrow(as.data.frame(go_results)), out_csv))
   
   # Dotplot 생성 (필터링 적용)
@@ -459,7 +466,7 @@ if (opt$task == "go") {
         ) +
         theme_minimal(base_size = dp_aes$font_size)
 
-      ggsave(file.path(output_path, out_plot), plot = go_dotplot, width = 10, height = 8, bg = "white")
+      ggsave(file.path(plots_dir, out_plot), plot = go_dotplot, width = 10, height = 8, bg = "white")
       cat(sprintf("Saved dotplot with %d terms to %s\n", nrow(plot_df), out_plot))
     } else {
       cat(sprintf("No terms pass p.adjust < %.3f threshold for plotting\n", config$enrichment$pvalue_cutoff))
@@ -470,7 +477,7 @@ if (opt$task == "go") {
                               config$enrichment$pvalue_cutoff, gene_set, ont), 
                size = 6, hjust = 0.5) +
         theme_void()
-      ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+      ggsave(file.path(plots_dir, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
     }
   } else {
     # No results at all
@@ -480,7 +487,7 @@ if (opt$task == "go") {
               label = paste("No GO enrichment found\nfor", gene_set, "regulated genes -", ont),
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
+    ggsave(file.path(plots_dir, out_plot), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
 
   # GO term clustering(term_cluster)과 GO Slim rollup(go_slim) 둘 다에서 쓰는 공용 헬퍼/값
@@ -516,8 +523,8 @@ if (opt$task == "go") {
     sig_ids <- go_df_tc$ID[!is.na(go_df_tc$p.adjust) & go_df_tc$p.adjust < fdr_cutoff &
                             !is.na(go_df_tc$FoldEnrichment) & go_df_tc$FoldEnrichment > fe_cutoff]
 
-    out_termcluster     <- file.path(output_path, paste0("go_termcluster_", gene_set, "_", ont, ".png"))
-    out_termcluster_csv <- file.path(output_path, paste0("go_termcluster_", gene_set, "_", ont, ".csv"))
+    out_termcluster     <- file.path(plots_dir, paste0("go_termcluster_", gene_set, "_", ont, ".png"))
+    out_termcluster_csv <- file.path(enrichment_dir, paste0("go_termcluster_", gene_set, "_", ont, ".csv"))
     min_terms_needed <- 3
 
     if (length(sig_ids) >= min_terms_needed) {
@@ -622,7 +629,7 @@ if (opt$task == "go") {
     slim_sig_ids <- go_df_slim$ID[!is.na(go_df_slim$p.adjust) & go_df_slim$p.adjust < slim_fdr &
                                    !is.na(go_df_slim$FoldEnrichment) & go_df_slim$FoldEnrichment > slim_fe]
 
-    out_slim_csv <- file.path(output_path, paste0("go_slim_", gene_set, "_", ont, ".csv"))
+    out_slim_csv <- file.path(enrichment_dir, paste0("go_slim_", gene_set, "_", ont, ".csv"))
     if (length(slim_sig_ids) > 0) {
       go_sig_slim <- go_results
       go_sig_slim@result <- go_df_slim[go_df_slim$ID %in% slim_sig_ids, ]
@@ -664,9 +671,9 @@ if (opt$task == "go") {
     rr_sig_ids <- go_df_rr$ID[!is.na(go_df_rr$p.adjust) & go_df_rr$p.adjust < rrvgo_fdr &
                                !is.na(go_df_rr$FoldEnrichment) & go_df_rr$FoldEnrichment > rrvgo_fe]
 
-    out_rrvgo_csv     <- file.path(output_path, paste0("go_rrvgo_", gene_set, "_", ont, ".csv"))
-    out_rrvgo_treemap <- file.path(output_path, paste0("go_rrvgo_treemap_", gene_set, "_", ont, ".png"))
-    out_rrvgo_scatter <- file.path(output_path, paste0("go_rrvgo_scatter_", gene_set, "_", ont, ".png"))
+    out_rrvgo_csv     <- file.path(enrichment_dir, paste0("go_rrvgo_", gene_set, "_", ont, ".csv"))
+    out_rrvgo_treemap <- file.path(plots_dir, paste0("go_rrvgo_treemap_", gene_set, "_", ont, ".png"))
+    out_rrvgo_scatter <- file.path(plots_dir, paste0("go_rrvgo_scatter_", gene_set, "_", ont, ".png"))
 
     if (length(rr_sig_ids) >= 2) {
       go_df_rr_sig <- go_df_rr[go_df_rr$ID %in% rr_sig_ids, ]
@@ -741,7 +748,7 @@ if (opt$task == "go") {
   
   # CSV 저장 (모든 결과 저장)
   out_csv_kegg <- paste0("kegg_enrichment_", gene_set, ".csv")
-  write.csv(as.data.frame(kegg_results), file.path(output_path, out_csv_kegg))
+  write.csv(as.data.frame(kegg_results), file.path(enrichment_dir, out_csv_kegg))
   cat(sprintf("Saved %d KEGG pathways to %s\n", nrow(as.data.frame(kegg_results)), out_csv_kegg))
   
   # Dotplot 생성 (필터링 적용)
@@ -768,7 +775,7 @@ if (opt$task == "go") {
         ) +
         theme_minimal(base_size = dp_aes$font_size)
       
-      ggsave(file.path(output_path, out_plot_kegg), plot = kegg_dotplot, width = 10, height = 8, bg = "white")
+      ggsave(file.path(plots_dir, out_plot_kegg), plot = kegg_dotplot, width = 10, height = 8, bg = "white")
       cat(sprintf("Saved KEGG dotplot with %d pathways to %s\n", nrow(plot_df_kegg), out_plot_kegg))
     } else {
       cat(sprintf("No pathways pass p.adjust < %.3f threshold for plotting\n", config$enrichment$pvalue_cutoff))
@@ -779,7 +786,7 @@ if (opt$task == "go") {
                               config$enrichment$pvalue_cutoff, gene_set), 
                  size = 6, hjust = 0.5) +
         theme_void()
-      ggsave(file.path(output_path, out_plot_kegg), plot = empty_plot, width = 10, height = 8, bg = "white")
+      ggsave(file.path(plots_dir, out_plot_kegg), plot = empty_plot, width = 10, height = 8, bg = "white")
     }
   } else {
     # No results at all
@@ -789,7 +796,7 @@ if (opt$task == "go") {
               label = paste("No KEGG enrichment found\nfor", gene_set, "regulated genes"), 
                size = 6, hjust = 0.5) +
       theme_void()
-    ggsave(file.path(output_path, out_plot_kegg), plot = empty_plot, width = 10, height = 8, bg = "white")
+    ggsave(file.path(plots_dir, out_plot_kegg), plot = empty_plot, width = 10, height = 8, bg = "white")
   }
 } else {
   stop(paste("Invalid task:", opt$task))

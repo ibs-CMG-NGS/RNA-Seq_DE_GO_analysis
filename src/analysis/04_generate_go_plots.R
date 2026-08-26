@@ -31,6 +31,9 @@ config <- yaml.load_file(opt$config)
 
 # [수정] output_path 변수를 Snakemake 인자로부터 설정
 output_path <- opt$output_dir
+enrichment_dir <- file.path(output_path, "enrichment")
+plots_dir      <- file.path(output_path, "plots")
+dir.create(plots_dir, showWarnings = FALSE, recursive = TRUE)
 
 # --- 2. 설정값 로드 ---
 cat("\n--- Running Step 4: Generating GO Bar Plots ---\n")
@@ -46,7 +49,7 @@ for (gene_set in gene_sets_to_plot) {
   all_go_results <- list()
   for (ont in c("BP", "CC", "MF")) {
     # [수정] input_csv 경로는 인자로 받은 output_path를 기준으로 합니다.
-    input_csv <- file.path(output_path, paste0("go_enrichment_", gene_set, "_", ont, ".csv"))
+    input_csv <- file.path(enrichment_dir, paste0("go_enrichment_", gene_set, "_", ont, ".csv"))
     
     if (file.exists(input_csv)) {
       raw_content <- trimws(paste(readLines(input_csv, warn = FALSE), collapse = ""))
@@ -105,7 +108,7 @@ for (gene_set in gene_sets_to_plot) {
     )
   
   # --- 7. 플롯 저장 ---
-  output_plot_path <- file.path(output_path, paste0("go_barplot_", gene_set, ".png"))
+  output_plot_path <- file.path(plots_dir, paste0("go_barplot_", gene_set, ".png"))
   ggsave(output_plot_path, plot = go_bar, width = 10, height = 15, dpi = 300, bg = "white") 
   
   cat(paste("Successfully generated and saved:", output_plot_path, "\n"))

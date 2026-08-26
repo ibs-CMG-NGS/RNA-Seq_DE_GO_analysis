@@ -103,7 +103,7 @@ sheet_summary <- list()
 
 for (gs in gene_sets) {
   for (ont in ontologies) {
-    in_csv <- file.path(output_dir, paste0("go_rrvgo_", gs, "_", ont, ".csv"))
+    in_csv <- file.path(output_dir, "enrichment", paste0("go_rrvgo_", gs, "_", ont, ".csv"))
     if (!file.exists(in_csv)) next
     d <- read.csv(in_csv, stringsAsFactors = FALSE)
     if (nrow(d) == 0) next
@@ -111,7 +111,7 @@ for (gs in gene_sets) {
     # go_rrvgo_*.csv(reduceSimMatrix 출력)에는 GeneRatio/BgRatio/pvalue/Count/geneID가
     # 없으므로, 같은 gene set/ontology의 go_enrichment_*.csv(원본 enrichResult 전체)와
     # GO ID 기준으로 join해서 채운다.
-    enrich_csv <- file.path(output_dir, paste0("go_enrichment_", gs, "_", ont, ".csv"))
+    enrich_csv <- file.path(output_dir, "enrichment", paste0("go_enrichment_", gs, "_", ont, ".csv"))
     if (!file.exists(enrich_csv)) {
       cat(sprintf("[05d_generate_rrvgo_clustered_go_table] %s missing — skipping %s/%s.\n",
                    basename(enrich_csv), gs, ont))

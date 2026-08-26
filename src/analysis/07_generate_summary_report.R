@@ -119,7 +119,7 @@ for (pair in PAIRS) {
 
   # GO BP enrichment
   read_go <- function(geneset) {
-    f <- file.path(pair_dir, paste0("go_enrichment_", geneset, "_BP.csv"))
+    f <- file.path(pair_dir, "enrichment", paste0("go_enrichment_", geneset, "_BP.csv"))
     if (!file.exists(f)) return(data.frame())
     tryCatch(read.csv(f, check.names = FALSE), error = function(e) data.frame())
   }

@@ -22,6 +22,8 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(ggupset)
   library(pheatmap)
+  library(dplyr)
+  library(openxlsx)
 })
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
@@ -67,7 +69,7 @@ cat(paste("[12_run_cross_condition_comparison] min_conditions_common =", min_con
 
 viz_cfg <- cc_cfg$visualization %||% list()
 viz_enabled <- if (is.null(viz_cfg$enabled)) TRUE else isTRUE(viz_cfg$enabled)
-dotplot_max_terms <- viz_cfg$dotplot_max_terms %||% 40
+dotplot_max_terms <- viz_cfg$dotplot_max_terms %||% 60
 up_color   <- config$plot_aesthetics$volcano$up_color   %||% "#FF5733"
 down_color <- config$plot_aesthetics$volcano$down_color %||% "#3375FF"
 # 조건별 signed -log10(FDR) 패턴이 비슷한 GO term끼리 축 위에서 인접하도록 묶어준다.
@@ -115,9 +117,9 @@ load_condition_direction <- function(condition, direction, ont) {
   # KEGG는 03_enrichment_analysis.R에서 ontology 구분 없이 kegg_enrichment_{direction}.csv
   # 하나로 저장되므로(BP/CC/MF 같은 하위분류가 없음) GO와 파일명 패턴이 다르다.
   path <- if (toupper(ont) == "KEGG") {
-    file.path(project_dir, "pairwise", condition, paste0("kegg_enrichment_", direction, ".csv"))
+    file.path(project_dir, "pairwise", condition, "enrichment", paste0("kegg_enrichment_", direction, ".csv"))
   } else {
-    file.path(project_dir, "pairwise", condition, paste0("go_enrichment_", direction, "_", ont, ".csv"))
+    file.path(project_dir, "pairwise", condition, "enrichment", paste0("go_enrichment_", direction, "_", ont, ".csv"))
   }
   if (!file.exists(path)) return(NULL)
   d <- tryCatch(read.csv(path, stringsAsFactors = FALSE), error = function(e) NULL)
@@ -205,6 +207,7 @@ run_for_ontology <- function(ont) {
   groups <- cc_cfg$groups %||% list()
   all_flip_ids <- character(0)
   all_excl_ids <- character(0)
+  all_mixed_ids <- character(0)
   term_ids_for <- function(conds, dir) unique(all_df$ID[all_df$condition %in% conds & all_df$direction == dir])
 
   if (length(groups) == 0) {
@@ -320,6 +323,7 @@ run_for_ontology <- function(ont) {
       cat(sprintf("  [mixed:%s] 0 terms.\n", group_name))
       next
     }
+    all_mixed_ids <- c(all_mixed_ids, mixed_ids)
     rows <- lapply(mixed_ids, function(id) {
       sub <- all_df[all_df$ID == id & all_df$condition %in% group_conds, ]
       data.frame(
@@ -392,86 +396,149 @@ run_for_ontology <- function(ont) {
       mat
     }
 
-    render_plot <- function(ids, out_name_dot, out_name_heatmap, title) {
+    trunc_term <- function(x) ifelse(nchar(x) > 55, paste0(substr(x, 1, 52), "..."), x)
+
+    # id 목록(주어진 순서 그대로) -> long-format 표(GO ID/Term/Condition/Direction/GeneRatio/
+    # Adjusted P-value/signed -log10(FDR)/방향역전 여부). dot plot·heatmap이 그리는 값과
+    # 정확히 같은 표를 그림 재현/검증용 source data로도 그대로 저장한다.
+    build_long_df <- function(ids) {
+      rows <- list()
+      for (id in ids) {
+        desc <- term_desc(id)
+        for (cond in conditions) {
+          sub <- all_df[all_df$ID == id & all_df$condition == cond, ]
+          if (nrow(sub) == 0) next
+          best <- sub[which.min(sub$p.adjust), ]
+          rows[[length(rows) + 1]] <- data.frame(
+            `GO ID` = id, `GO Term` = desc, Condition = cond, Direction = best$direction,
+            `Gene Ratio` = best$GeneRatioNum, `Adjusted P-value` = best$p.adjust,
+            `Signed -log10(FDR)` = ifelse(best$direction == "UP", 1, -1) * -log10(best$p.adjust),
+            `Direction Flip` = id %in% all_flip_ids,
+            check.names = FALSE, stringsAsFactors = FALSE
+          )
+        }
+      }
+      do.call(rbind, rows)
+    }
+
+    draw_heatmap <- function(ids, out_name_heatmap, title) {
+      if (length(ids) < 2) return(invisible(NULL))
+      cat(sprintf("  [viz] Heatmap: %d terms -> %s\n", length(ids), out_name_heatmap))
+      tryCatch({
+        raw_labels <- vapply(ids, term_desc, character(1))
+        trunc_labels <- ifelse(nchar(raw_labels) > 55, paste0(substr(raw_labels, 1, 52), "..."), raw_labels)
+        term_labels <- make.unique(trunc_labels)
+        mat <- signed_matrix_for(ids)
+        rownames(mat) <- term_labels
+        # 연속값(signed -log10 FDR) 기준 거리 — 색은 아래에서 이산화하지만 클러스터링/
+        # 덴드로그램은 원래의 연속적 유사도를 그대로 반영해야 하므로 따로 보관해둔다.
+        dist_rows <- dist(mat)
+
+        # FDR은 heavy-tailed라(예: 1e-10와 1e-62가 같은 매트릭스에 공존) 연속 컬러 스케일을
+        # 쓰면 극단값 하나가 나머지 셀 전부를 흐리게 눌러버린다 — 그래서 유의성 구간
+        # (0.05/0.01/0.001)으로 이산화해서 칠한다. 0은 "해당 조건에서 유의하지 않음(absent)".
+        tier_code <- function(v) {
+          if (v == 0) return(4L)
+          if (v > 0) { if (v >= 3) return(7L); if (v >= 2) return(6L); return(5L) }
+          if (v <= -3) return(1L); if (v <= -2) return(2L); return(3L)
+        }
+        mat_tier <- matrix(vapply(as.vector(mat), tier_code, integer(1)),
+                            nrow = nrow(mat), dimnames = dimnames(mat))
+
+        down_shades <- colorRampPalette(c(down_color, "white"))(4)[1:3]
+        up_shades   <- colorRampPalette(c("white", up_color))(4)[2:4]
+        tier_colors <- c(down_shades, "white", up_shades)
+        tier_labels <- c("DOWN FDR<0.001", "DOWN FDR<0.01", "DOWN FDR<0.05", "absent",
+                          "UP FDR<0.05", "UP FDR<0.01", "UP FDR<0.001")
+
+        n_rows <- length(ids)
+        row_fontsize <- if (n_rows > 100) 5 else if (n_rows > 60) 6 else 8
+        # cluster_rows=TRUE면 pheatmap이 dist_rows(연속값 거리)로 재클러스터링해서
+        # 덴드로그램을 그린다 — 표시되는 색은 이산화됐지만 묶는 기준은 연속값 그대로.
+        img_width <- max(1400, 480 + max(nchar(term_labels)) * 8 + 130 * length(conditions) + 60)
+        img_height <- max(900, 20 * n_rows + 250)
+        png(file.path(output_dir, out_name_heatmap), width = img_width, height = img_height, res = 150)
+        pheatmap(mat_tier, color = tier_colors, breaks = seq(0.5, 7.5, by = 1),
+                 cluster_cols = FALSE, cluster_rows = cluster_terms_enabled,
+                 clustering_distance_rows = dist_rows,
+                 legend_breaks = 1:7, legend_labels = tier_labels,
+                 fontsize_row = row_fontsize, fontsize_col = 9, main = title)
+        dev.off()
+      }, error = function(e) {
+        if (dev.cur() > 1) dev.off()
+        cat(paste("  [viz] heatmap failed:", e$message, "\n"))
+      })
+    }
+
+    draw_dotplot <- function(ids, out_name_dot, title) {
+      if (length(ids) == 0) return(invisible(NULL))
+      cat(sprintf("  [viz] Dot plot: %d terms -> %s\n", length(ids), out_name_dot))
+      tryCatch({
+        plot_df <- build_long_df(ids)
+        plot_df$`GO Term` <- trunc_term(plot_df$`GO Term`)
+        term_order <- trunc_term(vapply(ids, term_desc, character(1)))
+        plot_df$`GO Term` <- factor(plot_df$`GO Term`, levels = rev(unique(term_order)))
+
+        p <- ggplot(plot_df, aes(x = Condition, y = `GO Term`)) +
+          geom_point(aes(size = `Gene Ratio`, color = `Signed -log10(FDR)`)) +
+          scale_color_gradient2(low = down_color, mid = "grey85", high = up_color, midpoint = 0,
+                                name = "sign(dir) x -log10(FDR)") +
+          scale_size_continuous(name = "Gene Ratio", range = c(1, 8)) +
+          theme_bw(base_size = 11) +
+          theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+          labs(x = NULL, y = NULL, title = title,
+               caption = if (any(plot_df$`Direction Flip`)) "* black outline = direction-flip term" else NULL)
+        if (any(plot_df$`Direction Flip`)) {
+          p <- p + geom_point(data = plot_df[plot_df$`Direction Flip`, ], shape = 21, size = 3.2,
+                               color = "black", stroke = 1, show.legend = FALSE)
+        }
+        # 폭 = legend(~2.6in) + 조건당 패널 폭(~0.8in) + y축 라벨 폭(글자 수 비례, 최대 55자 기준)
+        label_w <- 0.085 * max(nchar(as.character(levels(plot_df$`GO Term`))))
+        w <- 2.6 + 0.8 * length(conditions) + label_w
+        h <- max(5, 0.28 * length(ids) + 2)
+        ggsave(file.path(output_dir, out_name_dot), plot = p, width = w, height = h, bg = "white", limitsize = FALSE)
+      }, error = function(e) cat(paste("  [viz] dot plot failed:", e$message, "\n")))
+    }
+
+    # heatmap은 항상 전체 후보로, dot plot은 유의성 상위 dotplot_max_terms개만(별도로
+    # 그 안에서 다시 클러스터링) — 둘 다 항상 같이 생성한다. source data CSV는 heatmap이
+    # 쓰는 전체 후보 기준 long-format 표(= dot plot 표의 상위集合)로 하나만 저장한다.
+    render_plot <- function(ids, out_name_dot, out_name_heatmap, out_name_data, title) {
       if (length(ids) == 0) return(invisible(NULL))
       term_rank <- vapply(ids, function(id) min(all_df$p.adjust[all_df$ID == id]), numeric(1))
-      ids <- ids[order(term_rank)]
+      ids_by_sig <- ids[order(term_rank)]
 
-      if (cluster_terms_enabled && length(ids) >= 3) {
-        hc <- tryCatch(hclust(dist(signed_matrix_for(ids)), method = cluster_method), error = function(e) NULL)
-        if (!is.null(hc)) ids <- ids[hc$order]
+      ids_full <- ids_by_sig
+      if (cluster_terms_enabled && length(ids_full) >= 3) {
+        hc <- tryCatch(hclust(dist(signed_matrix_for(ids_full)), method = cluster_method), error = function(e) NULL)
+        if (!is.null(hc)) ids_full <- ids_full[hc$order]
       }
-      trunc_term <- function(x) ifelse(nchar(x) > 55, paste0(substr(x, 1, 52), "..."), x)
 
-      if (length(ids) <= dotplot_max_terms) {
-        cat(sprintf("  [viz] Dot plot: %d terms (<= %d) -> %s\n", length(ids), dotplot_max_terms, out_name_dot))
-        tryCatch({
-          plot_rows <- list()
-          for (id in ids) {
-            desc <- trunc_term(term_desc(id))
-            for (cond in conditions) {
-              sub <- all_df[all_df$ID == id & all_df$condition == cond, ]
-              if (nrow(sub) == 0) next
-              best <- sub[which.min(sub$p.adjust), ]
-              plot_rows[[length(plot_rows) + 1]] <- data.frame(
-                GO_ID = id, GO_Term = desc, Condition = cond,
-                GeneRatio = best$GeneRatioNum,
-                SignedLog10P = ifelse(best$direction == "UP", 1, -1) * -log10(best$p.adjust),
-                IsFlip = id %in% all_flip_ids,
-                stringsAsFactors = FALSE
-              )
-            }
-          }
-          plot_df <- do.call(rbind, plot_rows)
-          term_order <- trunc_term(vapply(ids, term_desc, character(1)))
-          plot_df$GO_Term <- factor(plot_df$GO_Term, levels = rev(unique(term_order)))
+      write.csv(build_long_df(ids_full), file.path(output_dir, out_name_data), row.names = FALSE)
 
-          p <- ggplot(plot_df, aes(x = Condition, y = GO_Term)) +
-            geom_point(aes(size = GeneRatio, color = SignedLog10P)) +
-            scale_color_gradient2(low = down_color, mid = "grey85", high = up_color, midpoint = 0,
-                                  name = "sign(dir) x -log10(FDR)") +
-            scale_size_continuous(name = "Gene Ratio", range = c(1, 8)) +
-            theme_bw(base_size = 11) +
-            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-            labs(x = NULL, y = NULL, title = title,
-                 caption = if (any(plot_df$IsFlip)) "* black outline = direction-flip term" else NULL)
-          if (any(plot_df$IsFlip)) {
-            p <- p + geom_point(data = plot_df[plot_df$IsFlip, ], shape = 21, size = 3.2,
-                                 color = "black", stroke = 1, show.legend = FALSE)
-          }
-          # 폭 = legend(~2.6in) + 조건당 패널 폭(~0.8in) + y축 라벨 폭(글자 수 비례, 최대 55자 기준)
-          label_w <- 0.085 * max(nchar(as.character(levels(plot_df$GO_Term))))
-          w <- 2.6 + 0.8 * length(conditions) + label_w
-          h <- max(5, 0.28 * length(ids) + 2)
-          ggsave(file.path(output_dir, out_name_dot), plot = p, width = w, height = h, bg = "white", limitsize = FALSE)
-        }, error = function(e) cat(paste("  [viz] dot plot failed:", e$message, "\n")))
-      } else {
-        cat(sprintf("  [viz] %d terms (> %d) -> heatmap fallback %s\n", length(ids), dotplot_max_terms, out_name_heatmap))
-        tryCatch({
-          raw_labels <- vapply(ids, term_desc, character(1))
-          trunc_labels <- ifelse(nchar(raw_labels) > 55, paste0(substr(raw_labels, 1, 52), "..."), raw_labels)
-          term_labels <- make.unique(trunc_labels)
-          mat <- signed_matrix_for(ids)
-          rownames(mat) <- term_labels
-          max_abs <- max(abs(mat), 1)
-          breaks <- seq(-max_abs, max_abs, length.out = 102)
-          colors <- colorRampPalette(c(down_color, "white", up_color))(101)
-          n_rows <- length(ids)
-          row_fontsize <- if (n_rows > 100) 5 else if (n_rows > 60) 6 else 8
-          # cluster_rows=TRUE면 pheatmap이 자체적으로 재클러스터링해서 덴드로그램을 그린다
-          # (dot plot과 같은 signed -log10(FDR) 행렬 기준이라 사실상 같은 패턴으로 묶임).
-          img_width <- max(1400, 480 + max(nchar(term_labels)) * 8 + 130 * length(conditions) + 60)
-          img_height <- max(900, 20 * n_rows + 250)
-          png(file.path(output_dir, out_name_heatmap), width = img_width, height = img_height, res = 150)
-          pheatmap(mat, color = colors, breaks = breaks, cluster_cols = FALSE,
-                   cluster_rows = cluster_terms_enabled, clustering_method = cluster_method,
-                   fontsize_row = row_fontsize, fontsize_col = 9, main = title)
-          dev.off()
-        }, error = function(e) {
-          if (dev.cur() > 1) dev.off()
-          cat(paste("  [viz] heatmap failed:", e$message, "\n"))
-        })
+      draw_heatmap(ids_full, out_name_heatmap, sub("Dot Plot", "Heatmap", title, fixed = TRUE))
+
+      # dot plot 상위 term은 순수 FDR로만 자르지 않고 방향별로 균형있게 뽑는다 — DOWN이
+      # term 수/통계적 강도 모두 UP을 압도하는 경우(실측 사례 있음) 상위 N개를 그냥
+      # FDR로만 자르면 UP이 하나도 안 남는 문제가 있었다. 각 term의 "대표 방향"은 그
+      # term의 전체 조건 중 가장 작은 p.adjust를 낸 방향으로 정한다(term_rank와 동일 기준).
+      best_dir <- vapply(ids_by_sig, function(id) {
+        sub <- all_df[all_df$ID == id, ]
+        sub$direction[which.min(sub$p.adjust)]
+      }, character(1))
+      half <- ceiling(dotplot_max_terms / 2)
+      up_top   <- head(ids_by_sig[best_dir == "UP"],   half)
+      down_top <- head(ids_by_sig[best_dir == "DOWN"], half)
+      dot_ids <- ids_by_sig[ids_by_sig %in% c(up_top, down_top)]  # ids_by_sig 순서(유의성 순) 유지
+
+      if (cluster_terms_enabled && length(dot_ids) >= 3) {
+        hc2 <- tryCatch(hclust(dist(signed_matrix_for(dot_ids)), method = cluster_method), error = function(e) NULL)
+        if (!is.null(hc2)) dot_ids <- dot_ids[hc2$order]
       }
+      dot_title <- if (length(ids_by_sig) > length(dot_ids)) {
+        sprintf("%s [top %d UP + %d DOWN of %d by FDR]", title, length(up_top), length(down_top), length(ids_by_sig))
+      } else title
+      draw_dotplot(dot_ids, out_name_dot, dot_title)
     }
 
     candidate_ids <- unique(c(common_strict_ids[["UP"]], common_strict_ids[["DOWN"]], all_flip_ids, all_excl_ids))
@@ -482,22 +549,47 @@ run_for_ontology <- function(ont) {
     }
     render_plot(candidate_ids,
                 sprintf("cross_condition_dotplot_%s.png", ont), sprintf("cross_condition_heatmap_%s.png", ont),
+                sprintf("cross_condition_plot_data_%s.csv", ont),
                 sprintf("Cross-Condition GO Dot Plot (%s)", ont))
 
     if (length(semantic_representative_ids) > 0) {
       render_plot(semantic_representative_ids,
                   sprintf("cross_condition_dotplot_semantic_%s.png", ont), sprintf("cross_condition_heatmap_semantic_%s.png", ont),
+                  sprintf("cross_condition_plot_data_semantic_%s.csv", ont),
                   sprintf("Cross-Condition GO Dot Plot - Semantic Filtered (%s)", ont))
+    }
+
+    # 같은 그룹 안에서 방향이 혼재하는 term(D. find_mixed) 전용 패널. common_strict는
+    # 반대 방향이 하나라도 있으면 제외하는 로직이라 이 term들은 원본/semantic 패널에는
+    # 거의 안 나타난다 — 그래서 별도 후보 집합으로 항상 같은 render_plot()을 재사용해
+    # heatmap(전체) + dot plot(상위 term) + source data를 만든다.
+    mixed_ids_unique <- unique(all_mixed_ids)
+    if (length(mixed_ids_unique) > 0) {
+      render_plot(mixed_ids_unique,
+                  sprintf("cross_condition_dotplot_mixed_%s.png", ont), sprintf("cross_condition_heatmap_mixed_%s.png", ont),
+                  sprintf("cross_condition_plot_data_mixed_%s.csv", ont),
+                  sprintf("Cross-Condition GO Dot Plot - Mixed Direction (%s)", ont))
     }
 
     # --- UpSet plot: 조건별 유의 term 중첩 구조 (UP/DOWN 각각) ---
     for (dir in c("UP", "DOWN")) {
       sub <- all_df[all_df$direction == dir, ]
-      if (length(unique(sub$ID)) == 0) next
+      ids <- unique(sub$ID)
+      if (length(ids) == 0) next
+      membership <- lapply(ids, function(id) sort(unique(sub$condition[sub$ID == id])))
+
+      membership_df <- data.frame(
+        `GO ID` = ids, `GO Term` = vapply(ids, term_desc, character(1)),
+        `N Conditions` = vapply(membership, length, integer(1)),
+        Conditions = vapply(membership, paste, character(1), collapse = "; "),
+        check.names = FALSE, stringsAsFactors = FALSE
+      )
+      membership_df <- membership_df[order(-membership_df$`N Conditions`, membership_df$`GO ID`), ]
+      write.csv(membership_df, file.path(output_dir, sprintf("upset_membership_%s_%s.csv", dir, ont)), row.names = FALSE)
+
       tryCatch({
-        ids <- unique(sub$ID)
         upset_df <- data.frame(ID = ids)
-        upset_df$Conditions <- lapply(ids, function(id) sort(unique(sub$condition[sub$ID == id])))
+        upset_df$Conditions <- membership
         p <- ggplot(upset_df, aes(x = Conditions)) +
           geom_bar(fill = if (dir == "UP") up_color else down_color) +
           scale_x_upset(order_by = "freq") +
@@ -512,6 +604,172 @@ run_for_ontology <- function(ont) {
 }
 
 for (ont in go_ontologies) run_for_ontology(ont)
+
+# --- Phase 5: 카테고리별 CSV 취합 -> final_cross_condition_go_results.xlsx ---
+# 11_run_group_enrichment.R과 같은 패턴(카테고리별 CSV를 다시 읽어 워크북 시트로 취합)이지만,
+# common/flip/exclusive/mixed가 서로 다른 컬럼 스키마를 가진다는 점이 다르다(단일 비교
+# GO 결과처럼 균일한 GeneSet x Ontology 그리드가 아님). 그래서 모든 시트에 공통으로
+# Category/Ontology 컬럼을 추가해 시트 간 식별 및 이후 parquet 결합의 공통 키로 쓴다.
+# flip_*/exclusive_*/mixed_* 라벨은 groups/flips/exclusives 설정에 따라 개수가 달라지므로
+# 여기서 다시 생성한다(run_for_ontology() 내부의 라벨 생성 로직과 동일해야 함).
+cat("\n[12_run_cross_condition_comparison] Building final_cross_condition_go_results.xlsx...\n")
+
+read_csv_if_nonempty <- function(path) {
+  if (!file.exists(path)) return(NULL)
+  raw <- trimws(paste(readLines(path, warn = FALSE), collapse = ""))
+  if (raw == "" || raw == '""') return(NULL)
+  d <- read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+  if (nrow(d) == 0) return(NULL)
+  d
+}
+
+flip_labels <- vapply(cc_cfg$flips %||% list(), function(flip) {
+  dir_from <- toupper(flip[[3]]); dir_to <- setdiff(c("UP", "DOWN"), dir_from)
+  sprintf("flip_%s_%s_to_%s_%s", dir_from, flip[[1]], dir_to, flip[[2]])
+}, character(1))
+exclusive_labels <- vapply(cc_cfg$exclusives %||% list(), function(spec) {
+  paste0("exclusive_", spec$label %||% paste(spec$target, collapse = "-"))
+}, character(1))
+mixed_labels <- paste0("mixed_", names(cc_cfg$groups %||% list()))
+category_labels <- c("common_up_strict", "common_up_loose", "common_down_strict", "common_down_loose",
+                      "common_up_strict_rrvgo", "common_down_strict_rrvgo",
+                      flip_labels, exclusive_labels, mixed_labels)
+
+wb <- createWorkbook()
+header_style <- createStyle(fontSize = 11, fontName = "Arial", textDecoration = "bold",
+                             halign = "center", valign = "center", fgFill = "#4472C4",
+                             fontColour = "#FFFFFF", border = "TopBottomLeftRight", borderColour = "#000000")
+text_style <- createStyle(fontSize = 10, fontName = "Arial", halign = "left", valign = "center",
+                           border = "TopBottomLeftRight", borderColour = "#D3D3D3")
+pvalue_style <- createStyle(fontSize = 10, fontName = "Arial", halign = "right", valign = "center",
+                             border = "TopBottomLeftRight", borderColour = "#D3D3D3", numFmt = "0.000")
+
+sheet_summary <- list()
+# parquet 결합용 사본(원본 xlsx 시트는 사람이 읽기 좋은 "GO ID"/"GO Term" 헤더를 유지하고,
+# parquet만 term_id/description으로 통일 — 06_export_seqviewer.R의 GO+KEGG 결합과 동일한 이유).
+sheet_data_for_parquet <- list()
+
+for (label in category_labels) {
+  for (ont in go_ontologies) {
+    path <- file.path(output_dir, paste0(label, "_", ont, ".csv"))
+    d <- read_csv_if_nonempty(path)
+    if (is.null(d)) next
+    d <- data.frame(Category = label, Ontology = ont, d, check.names = FALSE, stringsAsFactors = FALSE)
+
+    sheet_name <- substr(paste0(label, "_", ont), 1, 31)
+    addWorksheet(wb, sheet_name)
+    writeData(wb, sheet_name, d, headerStyle = header_style)
+    addStyle(wb, sheet_name, header_style, rows = 1, cols = seq_len(ncol(d)), gridExpand = TRUE)
+    pval_cols <- grep("P-value|P value|Adj P|Jaccard", colnames(d))
+    text_cols <- setdiff(seq_len(ncol(d)), pval_cols)
+    if (length(text_cols) > 0) addStyle(wb, sheet_name, text_style, rows = 2:(nrow(d) + 1), cols = text_cols, gridExpand = TRUE)
+    if (length(pval_cols) > 0) addStyle(wb, sheet_name, pvalue_style, rows = 2:(nrow(d) + 1), cols = pval_cols, gridExpand = TRUE)
+    setColWidths(wb, sheet_name, cols = seq_len(ncol(d)), widths = "auto")
+    sheet_summary[[sheet_name]] <- nrow(d)
+
+    d_parquet <- d %>%
+      rename(any_of(c(term_id = "GO ID", term_id = "go", description = "GO Term", description = "term")))
+    sheet_data_for_parquet[[sheet_name]] <- d_parquet
+  }
+}
+
+if (length(sheet_summary) == 0) {
+  addWorksheet(wb, "No Results")
+  writeData(wb, "No Results", data.frame(Message = "No cross-condition GO categories produced results."))
+}
+
+info_df <- data.frame(
+  Parameter = c("Conditions", "GO ontologies", "FDR cutoff", "Fold enrichment cutoff",
+                "min_conditions_common", "Groups configured", "Flips configured",
+                "Exclusives configured", "Sheets with results"),
+  Value = c(paste(conditions, collapse = ", "), paste(go_ontologies, collapse = ", "),
+            fdr_cutoff, fe_cutoff, min_conditions_common, length(cc_cfg$groups %||% list()),
+            length(cc_cfg$flips %||% list()), length(cc_cfg$exclusives %||% list()),
+            length(sheet_summary)),
+  stringsAsFactors = FALSE
+)
+addWorksheet(wb, "Analysis_Info")
+writeData(wb, "Analysis_Info", info_df)
+addStyle(wb, "Analysis_Info", header_style, rows = 1, cols = 1:2, gridExpand = TRUE)
+setColWidths(wb, "Analysis_Info", cols = 1:2, widths = c(25, 40))
+
+cross_condition_xlsx <- file.path(output_dir, "final_cross_condition_go_results.xlsx")
+saveWorkbook(wb, cross_condition_xlsx, overwrite = TRUE)
+cat(paste("[12_run_cross_condition_comparison] final_cross_condition_go_results.xlsx saved:",
+          cross_condition_xlsx, "(", length(sheet_summary), "sheets with data)\n"))
+
+# --- Phase 6: CMG-SeqViewer export (parquet + staging JSON) — export_seqviewer: true 일 때만 ---
+# 06_export_seqviewer.R의 GO/KEGG parquet 결합과 같은 디렉토리 규격을 쓰되, 이 스크립트
+# 안에서 이미 만든 sheet_data_for_parquet를 그대로 재사용한다(01c/10처럼 인라인 헬퍼 중복 —
+# 이 저장소의 기존 관행). Snakemake output 계약을 지키기 위해 결과가 0건이어도 빈 entries
+# JSON은 항상 생성한다.
+if (isTRUE(cc_cfg$export_seqviewer)) {
+  suppressPackageStartupMessages({
+    library(arrow)
+    library(jsonlite)
+  })
+
+  make_alias_slug <- function(alias, max_len = 80) {
+    slug <- gsub("[^\\w가-힣]+", "_", alias, perl = TRUE)
+    slug <- gsub("^_|_$", "", slug)
+    substr(slug, 1, max_len)
+  }
+  new_uuid <- function() {
+    hex <- paste0(sample(c(0:9, letters[1:6]), 32, replace = TRUE), collapse = "")
+    paste(substr(hex, 1, 8), substr(hex, 9, 12),
+          paste0("4", substr(hex, 14, 16)),
+          paste0(sample(c("8", "9", "a", "b"), 1), substr(hex, 18, 20)),
+          substr(hex, 21, 32), sep = "-")
+  }
+  write_parquet_dataset <- function(df, alias, datasets_dir) {
+    uid      <- new_uuid()
+    slug     <- make_alias_slug(alias)
+    filename <- paste0(slug, ".parquet")
+    old_files <- list.files(datasets_dir, pattern = paste0("^", slug, "\\.parquet$"), full.names = TRUE)
+    if (length(old_files) > 0) file.remove(old_files)
+    write_parquet(df, file.path(datasets_dir, filename))
+    list(uid = uid, filename = filename)
+  }
+
+  seqviewer_dir <- file.path(config$output_dir, "seqviewer")
+  datasets_dir  <- file.path(seqviewer_dir, "datasets")
+  staging_dir   <- file.path(seqviewer_dir, "staging")
+  dir.create(datasets_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(staging_dir,  recursive = TRUE, showWarnings = FALSE)
+  staging_path <- file.path(staging_dir, "cross_condition_entries.json")
+
+  if (length(sheet_data_for_parquet) > 0) {
+    cc_combined <- suppressWarnings(bind_rows(sheet_data_for_parquet))
+    cc_alias <- paste(basename(config$output_dir), "Cross-Condition GO")
+    cc_info  <- write_parquet_dataset(cc_combined, cc_alias, datasets_dir)
+
+    cc_entry <- list(
+      dataset_id           = cc_info$uid,
+      alias                = cc_alias,
+      original_filename    = cc_info$filename,
+      dataset_type         = "cross_condition_go",
+      experiment_condition = paste(conditions, collapse = ", "),
+      organism             = config$species %||% "",
+      cell_type            = "",
+      tissue               = "",
+      timepoint            = "",
+      row_count            = nrow(cc_combined),
+      gene_count           = 0L,
+      significant_genes    = 0L,
+      import_date          = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
+      file_path            = cc_info$filename,
+      notes                = sprintf("Cross-condition GO comparison (FDR<%.3g, FE>%.1f, %d conditions): common/flip/exclusive/mixed categories combined",
+                                      fdr_cutoff, fe_cutoff, length(conditions)),
+      tags                 = as.list(c("cross_condition", "GO", conditions))
+    )
+    write_json(list(cc_entry), staging_path, pretty = TRUE, auto_unbox = TRUE)
+    cat(paste("[12_run_cross_condition_comparison] Seqviewer parquet saved:", cc_info$filename, "\n"))
+    cat(paste("[12_run_cross_condition_comparison] Seqviewer staging JSON saved:", staging_path, "\n"))
+  } else {
+    write_json(list(), staging_path, pretty = TRUE, auto_unbox = TRUE)
+    cat("[12_run_cross_condition_comparison] No cross-condition sheets with data — wrote empty staging JSON.\n")
+  }
+}
 
 writeLines(condition_count_log, file.path(output_dir, "condition_count_log.txt"))
 cat("\n[12_run_cross_condition_comparison] Done.\n")

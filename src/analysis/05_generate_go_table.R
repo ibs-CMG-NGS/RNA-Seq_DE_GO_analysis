@@ -22,6 +22,7 @@ config_path <- args[1]
 compare_group <- args[2]
 base_group <- args[3]
 output_dir <- args[4]
+enrichment_dir <- file.path(output_dir, "enrichment")
 
 # --- 2. Load config ---
 if (!file.exists(config_path)) {
@@ -162,7 +163,7 @@ all_go_results <- list()
 
 for (geneset in gene_sets) {
   for (ont in ontologies) {
-    go_data <- collect_go_results(output_dir, geneset, ont)
+    go_data <- collect_go_results(enrichment_dir, geneset, ont)
     if (!is.null(go_data)) {
       all_go_results[[paste(geneset, ont, sep="_")]] <- go_data
     }
@@ -174,7 +175,7 @@ cat("\nCollecting KEGG enrichment results...\n")
 all_kegg_results <- list()
 
 for (geneset in gene_sets) {
-  kegg_data <- collect_kegg_results(output_dir, geneset)
+  kegg_data <- collect_kegg_results(enrichment_dir, geneset)
   if (!is.null(kegg_data)) {
     all_kegg_results[[geneset]] <- kegg_data
   }

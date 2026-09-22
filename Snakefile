@@ -38,6 +38,14 @@ rule all:
         # 1d. Global QC Report (if enabled and count data available)
         expand(OUTPUT_DIR / "qc_plots/global_qc_report.html", allow_missing=True) if (config.get("qc_plots", {}).get("generate_global_qc", False) and config.get("count_data_path")) else [],
 
+        # 1e. Cell-type purity check (marker gene set 기반, qc_plots.celltype_check.enabled 시)
+        expand(OUTPUT_DIR / "qc_plots/celltype_purity/celltype_purity_results.csv", allow_missing=True)
+            if (config.get("qc_plots", {}).get("celltype_check", {}).get("enabled", False) and config.get("count_data_path")) else [],
+
+        # 1f. BRETIGEA cell-type deconvolution (qc_plots.celltype_deconvolution.enabled 시)
+        expand(OUTPUT_DIR / "qc_plots/celltype_deconvolution/celltype_deconvolution_results.csv", allow_missing=True)
+            if (config.get("qc_plots", {}).get("celltype_deconvolution", {}).get("enabled", False) and config.get("count_data_path")) else [],
+
         # 2. All Pairwise results
         expand(OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv", pair=PAIRS),
         expand(OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png", pair=PAIRS),
@@ -374,6 +382,48 @@ rule generate_global_qc_plots:
         output_dir = str(OUTPUT_DIR / "qc_plots")
     log:
         OUTPUT_DIR / "logs/02a_generate_global_qc_plots.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --output_dir {params.output_dir} > {log} 2>&1"
+
+# Rule 2e: Cell-type Purity Check (marker gene set 기반, qc_plots.celltype_check.enabled 시)
+rule check_celltype_purity:
+    input:
+        script = "src/analysis/02e_check_celltype_purity.R",
+        config_file = CONFIG_FILE,
+        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+        meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else [],
+        marker_list = lambda wildcards: config.get("qc_plots", {}).get("celltype_check", {}).get("marker_list_path", [])
+    output:
+        csv = OUTPUT_DIR / "qc_plots/celltype_purity/celltype_purity_results.csv",
+        heatmap = OUTPUT_DIR / "qc_plots/celltype_purity/celltype_purity_heatmap.png",
+        summary = OUTPUT_DIR / "qc_plots/celltype_purity/celltype_purity_summary.txt"
+    params:
+        output_dir = str(OUTPUT_DIR / "qc_plots")
+    log:
+        OUTPUT_DIR / "logs/02e_check_celltype_purity.log"
+    conda:
+        R_ENV_NAME
+    shell:
+        "Rscript {input.script} --config {input.config_file} --output_dir {params.output_dir} > {log} 2>&1"
+
+# Rule 2f: BRETIGEA Cell-type Deconvolution (qc_plots.celltype_deconvolution.enabled 시,
+# 02e의 절대 발현량 기준 fgsea와 상호보완적인 코호트 상대 비교 방법)
+rule run_bretigea_deconvolution:
+    input:
+        script = "src/analysis/02f_run_bretigea_deconvolution.R",
+        config_file = CONFIG_FILE,
+        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+        meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
+    output:
+        csv = OUTPUT_DIR / "qc_plots/celltype_deconvolution/celltype_deconvolution_results.csv",
+        heatmap = OUTPUT_DIR / "qc_plots/celltype_deconvolution/celltype_deconvolution_heatmap.png",
+        summary = OUTPUT_DIR / "qc_plots/celltype_deconvolution/celltype_deconvolution_summary.txt"
+    params:
+        output_dir = str(OUTPUT_DIR / "qc_plots")
+    log:
+        OUTPUT_DIR / "logs/02f_run_bretigea_deconvolution.log"
     conda:
         R_ENV_NAME
     shell:

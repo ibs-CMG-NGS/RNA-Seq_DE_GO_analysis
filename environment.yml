@@ -1,5 +1,6 @@
 name: rna-seq-de-go-analysis
 channels:
+  - pkgs/r
   - conda-forge
   - bioconda
   - defaults
@@ -37,6 +38,7 @@ dependencies:
   - r-arrow
   - r-jsonlite
   - r-ggupset
+  - r-bretigea=1.0.3
 
   # Bioconductor 패키지 (Conda 설치 가능)
   - bioconductor-deseq2
@@ -55,3 +57,4 @@ dependencies:
   - bioconductor-masigpro
   - bioconductor-rrvgo
   - bioconductor-degreport
+  - bioconductor-fgsea

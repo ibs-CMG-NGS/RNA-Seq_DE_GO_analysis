@@ -1,0 +1,70 @@
+# =============================================================
+# Cross-Dataset(프로젝트 간) 비교 - Config 템플릿
+#
+# 목적: 이미 완료된 프로젝트 2개 이상(다른 종/조직/실험이어도 무방)의 결과를 사후에
+# 비교해서 insight를 뽑는 메타분석. 프로젝트 1개짜리 config(configs/config_*.yml)와는
+# 완전히 별개 파일이고, 각 프로젝트 자체 Snakemake rule all에는 엮이지 않는다 —
+# 여러 project_dir를 동시에 참조하는 구조라 단일 프로젝트 rule 체인에 넣을 이유가
+# 없고(atac-seq-da-analysis의 docs/plan_cross_dataset_atac_comparison.md와 동일 설계
+# 결정), 독립 스크립트로 직접 실행한다.
+#
+# 사용법:
+#   Rscript src/analysis/18_run_cross_dataset_go_comparison.R configs/cross_dataset_X.yaml
+#   Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dataset_X.yaml
+#
+# 참고 구현체(용어/설계가 여기서 유래): atac-seq-da-analysis의
+#   20_run_cross_species_go_comparison.R / 28_run_cluster_cross_species_comparison.R
+# =============================================================
+
+output_dir: "output/cross_dataset_LABEL_A-vs-LABEL_B"
+
+# 비교할 데이터셋(프로젝트) 목록 — 2개 이상, 각자 이미 파이프라인이 완주되어
+# pairwise/{pair}/enrichment/go_enrichment_*.csv 등이 존재해야 함.
+datasets:
+  - label: "mouse"                                    # dataset_label — groups/flips/exclusives의 축이 됨
+    config: "configs/config_2026-06-hiy-mouse-rna.yml"
+    # (선택) 이 데이터셋의 실제 pairwise 폴더명이 아래 pairs(정식 이름)와 다를 때만
+    # 필요 — 예: 정식 이름 "Acute_1D_vs_Control"인데 이 프로젝트는 "D1_vs_Control"
+    # 폴더로 저장되어 있는 경우. 없으면 pairs 값을 폴더명 그대로 사용.
+    pair_map:
+      "Acute_1D_vs_Control": "D1_vs_Control"
+      "Acute_3D_vs_Control": "D3_vs_Control"
+      "Chronic_24H_vs_Control": "24h_vs_Control"
+      "Chronic_48H_vs_Control": "48h_vs_Control"
+  - label: "human"
+    config: "configs/config_2026-06-hiy-human-rna.yml"
+    pair_map:
+      "Acute_1D_vs_Control": "Acute_1D_vs_Cont"
+      "Acute_3D_vs_Control": "Acute_3D_vs_Cont"
+      "Chronic_24H_vs_Control": "Chronic_24H_vs_Cont"
+      "Chronic_48H_vs_Control": "Chronic_48H_vs_Cont"
+  # 3개 이상도 지원 (예: - label: "rat" \n config: "configs/config_X.yml")
+
+# 데이터셋 사이에서 "대응"으로 취급할 pairwise 비교의 정식(canonical) 이름. 각
+# 데이터셋의 실제 폴더명이 이와 다르면 위 datasets[].pair_map으로 매핑할 것 —
+# condition id(그래프 축 라벨, common/flip 등 카테고리 판정 키)는 항상 이 정식
+# 이름을 쓰고, 실제 파일 경로 생성에만 매핑된 이름을 쓴다.
+pairs:
+  - "Acute_1D_vs_Control"
+  - "Acute_3D_vs_Control"
+  - "Chronic_24H_vs_Control"
+  - "Chronic_48H_vs_Control"
+
+go_ontologies: [BP, KEGG]
+fdr_cutoff: 0.05
+fold_enrichment_cutoff: 2.0
+sparsity_warn_threshold: 20        # 조건×방향 유의 term 수가 이 미만이면 경고 로그
+gene_overlap_jaccard_warn: 0.3     # flip term의 gene Jaccard가 이 미만이면 low_overlap 플래그
+# min_datasets_common 미설정 시 기본값 = round(0.75 * length(datasets) * length(pairs))
+# (18번 스크립트는 (dataset, pair) 조합 전체를 "조건" 축으로 취급하므로 개수가 곱으로 커짐)
+
+semantic_filtering:
+  enabled: true
+  method: null      # null이면 datasets[1] 프로젝트 config의 enrichment.rrvgo.method(기본 "Rel")
+  threshold: null   # null이면 0.7
+
+visualization:
+  enabled: true
+  dotplot_max_terms: 60
+  cluster_terms: true
+  cluster_method: average

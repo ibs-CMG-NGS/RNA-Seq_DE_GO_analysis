@@ -24,6 +24,7 @@ airway 예제 데이터를 사용하여 전체 분석 과정을 즉시 재현할
 * **논문용 GO Summary Table 자동 생성**: `final_go_results.xlsx` — Gene Set(UP/DOWN/TOTAL) × Ontology(BP/CC/MF)별 워크시트로 자동 구성.
 * **Google Drive 자동 업로드**: `rclone`을 통해 파이프라인 완료 후 결과 폴더를 자동으로 백업 (증분 업로드, 중복 방지).
 * **배치 실행 스크립트**: `run_batch.sh`로 여러 프로젝트(config)를 한 번에 순차 실행 가능.
+* **Cross-Dataset 비교**: 이미 완료된 프로젝트 2개 이상(다른 종/실험이어도, 심지어 atac-seq-da-analysis의 ATAC-seq 프로젝트여도)을 사후에 비교해 common/flip/exclusive/mixed GO term과 time-series/coexpression 클러스터 간 Jaccard 매칭을 뽑는 독립 도구. 자세한 내용은 [`docs/CROSS_DATASET_GUIDE.md`](docs/CROSS_DATASET_GUIDE.md) 참고.
 
 ---
 
@@ -269,6 +270,21 @@ cd bridge
 python3 convert_de_to_gsea.py \
   --input ../output/{project}/pairwise/{pair}/final_de_results.csv \
   --output ../../RNA-Seq_GO_GSEA_analysis/data/{pair}.xlsx
+```
+
+---
+
+## 🔀 Cross-Dataset 비교
+
+한 프로젝트 안의 pairwise 비교(Acute vs Chronic 등)는 파이프라인 자체의
+`enrichment.cross_condition` 기능으로 다루지만, **서로 다른 프로젝트**(다른
+종·다른 실험·심지어 다른 assay)를 사후에 비교하려면 별도 config로 독립 스크립트
+2개를 실행합니다. 자세한 사용법·config 스키마·worked example은
+[`docs/CROSS_DATASET_GUIDE.md`](docs/CROSS_DATASET_GUIDE.md)를 참고하세요.
+
+```bash
+Rscript src/analysis/18_run_cross_dataset_go_comparison.R configs/cross_dataset_X.yaml
+Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dataset_X.yaml
 ```
 
 ---

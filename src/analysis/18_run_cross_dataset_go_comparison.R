@@ -51,6 +51,28 @@ suppressPackageStartupMessages({
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+# --- assay 프리셋: RNA-Seq_DE_GO_analysis와 atac-seq-da-analysis는 GO enrichment
+# 표(ID/Description/GeneRatio/BgRatio/p.adjust/geneID/Count) 자체는 동일하지만
+# pairwise 결과를 어디서 찾을지·geneID가 어떤 포맷인지가 다르다(직접 대조 확인,
+# docs/atac_pipeline_alignment_request.md 참고). datasets[].assay(기본 "rna")로
+# 데이터셋별로 선택한다.
+ASSAY_PRESETS <- list(
+  rna = list(
+    geneid_format = "entrez",
+    pairwise_go_path = function(pd, pair, dir, ont)
+      file.path(pd, "pairwise", pair, "enrichment", sprintf("go_enrichment_%s_%s.csv", dir, ont)),
+    pairwise_kegg_path = function(pd, pair, dir)
+      file.path(pd, "pairwise", pair, "enrichment", sprintf("kegg_enrichment_%s.csv", dir))
+  ),
+  atac = list(
+    geneid_format = "symbol",
+    pairwise_go_path = function(pd, pair, dir, ont)
+      file.path(pd, "pairwise", pair, sprintf("go_enrichment_%s_%s.csv", dir, ont)),
+    pairwise_kegg_path = function(pd, pair, dir)
+      file.path(pd, "pairwise", pair, sprintf("kegg_enrichment_%s.csv", dir))
+  )
+)
+
 # --- 1. 인자 파싱 & config 로드 ---
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 1) {
@@ -91,11 +113,34 @@ if (length(dataset_labels) != length(unique(dataset_labels))) {
 project_cfgs <- lapply(datasets_cfg, function(d) yaml::read_yaml(d$config))
 names(project_cfgs) <- dataset_labels
 
-dataset_meta <- setNames(lapply(dataset_labels, function(lbl) {
+# 프로젝트 config의 output_dir은 그 프로젝트의 "본가" 레포(RNA-Seq_DE_GO_analysis
+# 또는 atac-seq-da-analysis) 작업 디렉토리를 기준으로 한 상대경로로 적혀 있다(각
+# 레포의 Snakefile/스크립트가 항상 그 레포 루트에서 실행된다는 전제). 이 cross-dataset
+# 스크립트는 항상 RNA-Seq_DE_GO_analysis에서 실행되므로, 다른 레포(ATAC)의 상대
+# output_dir을 그대로 file.path()하면 엉뚱한(RNA 레포 기준) 경로가 되어 조용히 0건
+# 매칭 실패로 이어진다 — datasets[].config 파일이 위치한 레포 루트(config 경로의
+# 조부모 디렉토리, "<repo>/configs/config_X.yml" 관례)를 기준으로 resolve한다.
+is_abs_path <- function(p) grepl("^/", p)
+config_repo_root <- function(config_path) dirname(dirname(normalizePath(config_path)))
+
+dataset_meta <- setNames(lapply(seq_along(dataset_labels), function(i) {
+  lbl <- dataset_labels[i]
   pcfg <- project_cfgs[[lbl]]
   species <- pcfg$species
-  list(label = lbl, project_dir = pcfg$output_dir, species = species,
-       organism_db = pcfg$databases[[species]]$organism_db)
+  assay <- datasets_cfg[[i]]$assay %||% "rna"
+  if (!assay %in% names(ASSAY_PRESETS)) {
+    stop(sprintf("[FATAL] dataset '%s': unknown assay '%s' (must be one of: %s)",
+                  lbl, assay, paste(names(ASSAY_PRESETS), collapse = ", ")))
+  }
+  raw_output_dir <- pcfg$output_dir
+  project_dir <- if (is_abs_path(raw_output_dir)) {
+    raw_output_dir
+  } else {
+    file.path(config_repo_root(datasets_cfg[[i]]$config), raw_output_dir)
+  }
+  list(label = lbl, project_dir = project_dir, species = species,
+       organism_db = pcfg$databases[[species]]$organism_db,
+       assay = assay, preset = ASSAY_PRESETS[[assay]])
 }), dataset_labels)
 
 for (lbl in dataset_labels) {
@@ -129,13 +174,17 @@ message(sprintf("[18_run_cross_dataset_go_comparison] GO ontologies: %s",
 # 프로젝트별로 한 번만 organism_db 전체 ENTREZID<->SYMBOL 매핑을 읽어 캐시한다
 # (per-row mapIds 호출은 느리고, 어차피 필요한 ID는 그 프로젝트가 다루는 전체 유전자
 # 범위 안에 있으므로 keys=keytype 없이 keys 지정 없는 전체 dump가 오히려 더 빠르다).
+# geneid_format이 이미 "symbol"인 데이터셋(예: atac 프리셋)은 매핑이 필요 없으므로
+# 건너뛴다 — 애초에 org db 전체를 훑는 이 작업 자체가 그 데이터셋엔 낭비.
 entrez2symbol <- setNames(lapply(dataset_labels, function(lbl) {
+  if (dataset_meta[[lbl]]$preset$geneid_format != "entrez") return(NULL)
   db <- get(dataset_meta[[lbl]]$organism_db)
   suppressMessages(AnnotationDbi::select(db, keys = keys(db, keytype = "ENTREZID"),
                                           keytype = "ENTREZID", columns = "SYMBOL"))
 }), dataset_labels)
 for (lbl in dataset_labels) {
   tab <- entrez2symbol[[lbl]]
+  if (is.null(tab)) next
   entrez2symbol[[lbl]] <- setNames(tab$SYMBOL, tab$ENTREZID)
 }
 
@@ -204,9 +253,9 @@ load_condition_direction <- function(condition_id, direction, ont) {
   ds <- dataset_meta[[meta_row$dataset]]
   pair <- meta_row$actual_pair
   path <- if (toupper(ont) == "KEGG") {
-    file.path(ds$project_dir, "pairwise", pair, "enrichment", paste0("kegg_enrichment_", direction, ".csv"))
+    ds$preset$pairwise_kegg_path(ds$project_dir, pair, direction)
   } else {
-    file.path(ds$project_dir, "pairwise", pair, "enrichment", paste0("go_enrichment_", direction, "_", ont, ".csv"))
+    ds$preset$pairwise_go_path(ds$project_dir, pair, direction, ont)
   }
   if (!file.exists(path)) return(NULL)
   d <- tryCatch(read.csv(path, stringsAsFactors = FALSE), error = function(e) NULL)
@@ -216,8 +265,10 @@ load_condition_direction <- function(condition_id, direction, ont) {
          !is.na(d$FoldEnrichment) & d$FoldEnrichment > fe_cutoff, ]
   if (nrow(d) == 0) return(NULL)
   if (toupper(ont) == "KEGG") d$ID <- normalize_kegg_id(d$ID)
-  lookup <- entrez2symbol[[meta_row$dataset]]
-  d$geneID <- vapply(d$geneID, entrez_list_to_symbols, character(1), lookup = lookup)
+  if (ds$preset$geneid_format == "entrez") {
+    lookup <- entrez2symbol[[meta_row$dataset]]
+    d$geneID <- vapply(d$geneID, entrez_list_to_symbols, character(1), lookup = lookup)
+  }
   d$condition <- condition_id
   d$direction <- toupper(direction)
   d$GeneRatioNum <- sapply(d$GeneRatio, parse_ratio)
@@ -755,6 +806,7 @@ pvalue_style <- createStyle(fontSize = 10, fontName = "Arial", halign = "right",
                              border = "TopBottomLeftRight", borderColour = "#D3D3D3", numFmt = "0.000")
 
 sheet_summary <- list()
+used_sheet_names <- character(0)
 
 for (label in category_labels) {
   for (ont in go_ontologies) {
@@ -763,7 +815,18 @@ for (label in category_labels) {
     if (is.null(d)) next
     d <- data.frame(Category = label, Ontology = ont, d, check.names = FALSE, stringsAsFactors = FALSE)
 
-    sheet_name <- substr(paste0(label, "_", ont), 1, 31)
+    # Excel 시트명 31자 제한. 데이터셋 라벨이 길면(예: "mouse_rna"/"mouse_atac")
+    # label만으로 이미 31자를 넘어 ont 접미사가 통째로 잘려나가 BP/KEGG 시트가
+    # 서로 같은 이름이 되는 충돌이 생길 수 있다(실측 확인) — ont 접미사가 항상
+    # 살아남도록 label 쪽을 먼저 줄이고, 그래도 겹치면 숫자를 붙여 최종 방어.
+    max_label_len <- 31 - nchar(ont) - 1
+    sheet_name <- paste0(substr(label, 1, max_label_len), "_", ont)
+    if (sheet_name %in% used_sheet_names) {
+      suffix <- 2
+      while (paste0(substr(sheet_name, 1, 31 - nchar(suffix) - 1), suffix) %in% used_sheet_names) suffix <- suffix + 1
+      sheet_name <- paste0(substr(sheet_name, 1, 31 - nchar(suffix) - 1), suffix)
+    }
+    used_sheet_names <- c(used_sheet_names, sheet_name)
     addWorksheet(wb, sheet_name)
     writeData(wb, sheet_name, d, headerStyle = header_style)
     addStyle(wb, sheet_name, header_style, rows = 1, cols = seq_len(ncol(d)), gridExpand = TRUE)

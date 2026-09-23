@@ -514,11 +514,33 @@ for (d in pair_data) {
 
 html <- paste0(html, '\n</div>\n')  # close .section
 
-# 5e. Time-series analysis (maSigPro) — de_analysis.time_series.enabled 시에만
-ts_csv <- file.path(output_dir, "time_series", "time_series_significant_genes.csv")
-if (isTRUE(config$de_analysis$time_series$enabled) && file.exists(ts_csv)) {
+# de_analysis.time_series / coexpression_modules는 dict(레거시, 단일 트랙) 또는
+# list(신규, 복수 트랙 — 항목마다 variant_label) 둘 다 지원한다(01c/10 스크립트,
+# Snakefile의 get_variant_tracks()와 동일한 계약). 활성화된 트랙 전부를 순회해
+# 트랙별로 섹션을 렌더링한다.
+get_de_tracks <- function(cfg_block) {
+  if (is.null(cfg_block)) return(list())
+  if (is.null(names(cfg_block))) {
+    Filter(function(t) isTRUE(t$enabled), cfg_block)
+  } else if (isTRUE(cfg_block$enabled)) {
+    list(cfg_block)
+  } else {
+    list()
+  }
+}
+folder_suffix_for <- function(track_cfg) {
+  vl <- track_cfg$variant_label
+  if (!is.null(vl)) paste0("_", vl) else ""
+}
+
+# 5e. Time-series analysis (maSigPro) — 트랙별
+for (ts_cfg_i in get_de_tracks(config$de_analysis$time_series)) {
+  ts_sfx <- folder_suffix_for(ts_cfg_i)
+  ts_label_suffix <- if (!is.null(ts_cfg_i$variant_label)) paste0(" — ", ts_cfg_i$variant_label) else ""
+  ts_csv <- file.path(output_dir, paste0("time_series", ts_sfx), "time_series_significant_genes.csv")
+  if (!file.exists(ts_csv)) next
   ts_df <- read.csv(ts_csv, check.names = FALSE)
-  ts_plot_rel <- file.path("time_series", "time_series_pattern_plot.png")
+  ts_plot_rel <- file.path(paste0("time_series", ts_sfx), "time_series_pattern_plot.png")
   ts_plot_abs <- file.path(output_dir, ts_plot_rel)
 
   ts_gene_col <- intersect(c("gene_symbol", "gene_id"), colnames(ts_df))[1]
@@ -536,7 +558,7 @@ if (isTRUE(config$de_analysis$time_series$enabled) && file.exists(ts_csv)) {
 
   html <- paste0(html, sprintf('
 <div class="section">
-    <h2>&#8987; Time-Series Analysis (maSigPro)</h2>
+    <h2>&#8987; Time-Series Analysis (maSigPro)%s</h2>
     <div class="summary-grid">
         <div class="summary-item">
             <div class="label">Significant genes</div>
@@ -551,20 +573,23 @@ if (isTRUE(config$de_analysis$time_series$enabled) && file.exists(ts_csv)) {
     <h3 style="color:#495057;margin-top:20px;">Top genes (by p-value)</h3>
     %s
 </div>
-', nrow(ts_df),
+', ts_label_suffix, nrow(ts_df),
    if (nrow(ts_df) > 0) length(unique(ts_df$cluster_id)) else 0,
    if (file.exists(ts_plot_abs)) sprintf('<div class="plot-container"><img src="%s" alt="Time-series pattern plot"></div>', ts_plot_rel) else "",
    ts_table
   ))
 }
 
-# 5f. Coexpression module analysis — de_analysis.coexpression_modules.enabled 시에만
-cm_csv <- file.path(output_dir, "coexpression_modules", "coexpression_module_assignments.csv")
-if (isTRUE(config$de_analysis$coexpression_modules$enabled) && file.exists(cm_csv)) {
+# 5f. Coexpression module analysis — 트랙별
+for (cm_cfg_i in get_de_tracks(config$de_analysis$coexpression_modules)) {
+  cm_sfx <- folder_suffix_for(cm_cfg_i)
+  cm_label_suffix <- if (!is.null(cm_cfg_i$variant_label)) paste0(" — ", cm_cfg_i$variant_label) else ""
+  cm_csv <- file.path(output_dir, paste0("coexpression_modules", cm_sfx), "coexpression_module_assignments.csv")
+  if (!file.exists(cm_csv)) next
   cm_df <- read.csv(cm_csv, check.names = FALSE)
-  cm_heatmap_rel <- file.path("coexpression_modules", "coexpression_module_heatmap.png")
+  cm_heatmap_rel <- file.path(paste0("coexpression_modules", cm_sfx), "coexpression_module_heatmap.png")
   cm_heatmap_abs <- file.path(output_dir, cm_heatmap_rel)
-  cm_pattern_rel <- file.path("coexpression_modules", "coexpression_pattern_plot.png")
+  cm_pattern_rel <- file.path(paste0("coexpression_modules", cm_sfx), "coexpression_pattern_plot.png")
   cm_pattern_abs <- file.path(output_dir, cm_pattern_rel)
 
   module_counts <- if (nrow(cm_df) > 0) table(cm_df$module_id) else integer(0)
@@ -577,7 +602,7 @@ if (isTRUE(config$de_analysis$coexpression_modules$enabled) && file.exists(cm_cs
 
   html <- paste0(html, sprintf('
 <div class="section">
-    <h2>&#129504; Coexpression Modules</h2>
+    <h2>&#129504; Coexpression Modules%s</h2>
     <div class="summary-grid">
         <div class="summary-item">
             <div class="label">Genes clustered</div>
@@ -592,7 +617,7 @@ if (isTRUE(config$de_analysis$coexpression_modules$enabled) && file.exists(cm_cs
     <h3 style="color:#495057;margin-top:20px;">Module sizes</h3>
     %s
 </div>
-', nrow(cm_df), length(module_counts),
+', cm_label_suffix, nrow(cm_df), length(module_counts),
    if (file.exists(cm_heatmap_abs)) sprintf('<div class="plot-container"><img src="%s" alt="Coexpression module heatmap"></div>', cm_heatmap_rel) else "",
    if (file.exists(cm_pattern_abs)) paste0(module_table, sprintf('<div class="plot-container"><img src="%s" alt="Coexpression module pattern plot"></div>', cm_pattern_rel)) else module_table
   ))

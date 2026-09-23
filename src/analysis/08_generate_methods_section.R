@@ -127,10 +127,23 @@ ggplot2_ver    <- pkg_ver("ggplot2")
 masigpro_ver   <- pkg_ver("maSigPro")
 degreport_ver  <- pkg_ver("DEGreport")
 
-ts_cfg <- de_cfg$time_series          %||% list()
-cm_cfg <- de_cfg$coexpression_modules %||% list()
-ts_enabled <- isTRUE(ts_cfg$enabled)
-cm_enabled <- isTRUE(cm_cfg$enabled)
+# de_analysis.time_series / coexpression_modules는 dict(레거시, 단일 트랙) 또는
+# list(신규, 복수 트랙 — 항목마다 variant_label) 둘 다 지원한다(01c/10 스크립트,
+# Snakefile의 get_variant_tracks()와 동일한 계약).
+get_de_tracks <- function(cfg_block) {
+  if (is.null(cfg_block)) return(list())
+  if (is.null(names(cfg_block))) {
+    Filter(function(t) isTRUE(t$enabled), cfg_block)
+  } else if (isTRUE(cfg_block$enabled)) {
+    list(cfg_block)
+  } else {
+    list()
+  }
+}
+ts_tracks  <- get_de_tracks(de_cfg$time_series)
+cm_tracks  <- get_de_tracks(de_cfg$coexpression_modules)
+ts_enabled <- length(ts_tracks) > 0
+cm_enabled <- length(cm_tracks) > 0
 snakemake_ver  <- tryCatch(
   trimws(system2("snakemake", "--version", stdout = TRUE, stderr = FALSE)[1]),
   error = function(e) "N/A"
@@ -307,9 +320,10 @@ md_table(
   )
 )
 
-# ── 2a. Time-Series Analysis (maSigPro) ────────────────────────────────────
-if (ts_enabled) {
-  h(2, "2a. Time-Series Analysis (maSigPro)")
+# ── 2a. Time-Series Analysis (maSigPro) — 트랙별 ───────────────────────────
+for (ts_cfg in ts_tracks) {
+  ts_title_suffix <- if (!is.null(ts_cfg$variant_label)) paste0(" — ", ts_cfg$variant_label) else ""
+  h(2, paste0("2a. Time-Series Analysis (maSigPro)", ts_title_suffix))
   ts_degree <- ts_cfg$degree %||% "auto"
   ts_q      <- ts_cfg$q_value %||% 0.05
   ts_rsq    <- ts_cfg$rsq_cutoff %||% 0.6
@@ -336,9 +350,10 @@ if (ts_enabled) {
   )
 }
 
-# ── 2b. Coexpression Module Analysis ───────────────────────────────────────
-if (cm_enabled) {
-  h(2, "2b. Coexpression Module Analysis")
+# ── 2b. Coexpression Module Analysis — 트랙별 ──────────────────────────────
+for (cm_cfg in cm_tracks) {
+  cm_title_suffix <- if (!is.null(cm_cfg$variant_label)) paste0(" — ", cm_cfg$variant_label) else ""
+  h(2, paste0("2b. Coexpression Module Analysis", cm_title_suffix))
   cm_padj <- cm_cfg$padj_cutoff %||% padj_cut
   cm_minc <- cm_cfg$min_cluster_size %||% 5
   p(paste0(
@@ -465,6 +480,9 @@ flatten_yaml <- function(x, prefix = "") {
     v   <- x[[k]]
     if (is.list(v) && !is.null(names(v))) {
       rows <- c(rows, flatten_yaml(v, key))
+    } else if (is.list(v) && length(v) > 0 && all(vapply(v, function(e) is.list(e) && !is.null(names(e)), logical(1)))) {
+      # list(복수 트랙, 예: time_series가 [ipsi, contra])는 원소마다 번호를 붙여 재귀
+      for (i in seq_along(v)) rows <- c(rows, flatten_yaml(v[[i]], paste0(key, "[", i, "]")))
     } else {
       display <- paste(as.character(v), collapse = ", ")
       if (nchar(display) > 90) display <- paste0(substr(display, 1, 87), "...")

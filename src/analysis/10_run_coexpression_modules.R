@@ -22,18 +22,34 @@ suppressPackageStartupMessages({
 
 # --- 1. 인자 파싱 ---
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 3) {
-  stop("Usage: Rscript 10_run_coexpression_modules.R [config_path] [omnibus_csv_path] [output_dir]")
+if (length(args) < 3 || length(args) > 4) {
+  stop("Usage: Rscript 10_run_coexpression_modules.R [config_path] [omnibus_csv_path] [output_dir] [variant_label]")
 }
-config_path      <- args[1]
-omnibus_csv_path <- args[2]
-output_dir       <- args[3]
+config_path       <- args[1]
+omnibus_csv_path  <- args[2]
+output_dir        <- args[3]
+variant_label_arg <- if (length(args) == 4) args[4] else ""
 
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 # --- 2. Config 로드 & coexpression_modules 설정 확인 ---
-config <- yaml.load_file(config_path)
-cm_cfg <- config$de_analysis$coexpression_modules
+# coexpression_modules는 dict(레거시, 단일 트랙) 또는 list(신규, 복수 트랙 — 항목마다
+# variant_label 필수) 둘 다 지원한다. 01c_run_masigpro_timeseries.R과 동일한 계약.
+config     <- yaml.load_file(config_path)
+cm_cfg_raw <- config$de_analysis$coexpression_modules
+is_multi_track <- !is.null(cm_cfg_raw) && is.null(names(cm_cfg_raw))
+
+if (is_multi_track) {
+  matched <- Filter(function(t) identical(t$variant_label, variant_label_arg), cm_cfg_raw)
+  if (length(matched) != 1) {
+    stop(paste0("[10_run_coexpression_modules] coexpression_modules가 list인데 variant_label='",
+                variant_label_arg, "'과 일치하는 트랙을 정확히 1개 찾지 못했습니다 (",
+                length(matched), "개 매칭)."))
+  }
+  cm_cfg <- matched[[1]]
+} else {
+  cm_cfg <- cm_cfg_raw
+}
 
 if (is.null(cm_cfg) || !isTRUE(cm_cfg$enabled)) {
   cat("[10_run_coexpression_modules] coexpression_modules.enabled is not true — skipping.\n")
@@ -233,19 +249,38 @@ if (isTRUE(config$export$export_to_excel)) {
 file.copy(config_path, file.path(output_dir, "config_used.yml"), overwrite = TRUE)
 
 # ─────────────────────────────────────────────────────────────
-# 9. CMG-SeqViewer export (parquet + staging JSON) — export_seqviewer: true 일 때만
+# 9. CMG-SeqViewer export (parquet + staging JSON). Snakemake의 다중 트랙(list) 규칙은
+#    staging JSON 경로를 항상 output으로 요구하므로(01c_run_masigpro_timeseries.R과 동일
+#    이유), export_seqviewer: false인 트랙에서도 빈 entries([])로 파일은 항상 만든다.
 # ─────────────────────────────────────────────────────────────
+suppressPackageStartupMessages({
+  library(jsonlite)
+})
+
+make_alias_slug <- function(alias, max_len = 80) {
+  slug <- gsub("[^\\w가-힣]+", "_", alias, perl = TRUE)
+  slug <- gsub("^_|_$", "", slug)
+  substr(slug, 1, max_len)
+}
+
+seqviewer_dir <- file.path(config$output_dir, "seqviewer")
+staging_dir   <- file.path(seqviewer_dir, "staging")
+dir.create(staging_dir, recursive = TRUE, showWarnings = FALSE)
+
+variant_label <- cm_cfg$variant_label
+# 06b_aggregate_seqviewer.R가 "_entries.json"으로 끝나는 파일만 수집하므로
+# variant_label을 접미사가 아니라 접두어 쪽에 넣어야 한다.
+staging_filename <- if (!is.null(variant_label)) {
+  paste0("coexpression_modules_", make_alias_slug(variant_label), "_entries.json")
+} else {
+  "coexpression_modules_entries.json"
+}
+staging_path <- file.path(staging_dir, staging_filename)
+
 if (export_sv) {
   suppressPackageStartupMessages({
     library(arrow)
-    library(jsonlite)
   })
-
-  make_alias_slug <- function(alias, max_len = 80) {
-    slug <- gsub("[^\\w가-힣]+", "_", alias, perl = TRUE)
-    slug <- gsub("^_|_$", "", slug)
-    substr(slug, 1, max_len)
-  }
 
   new_uuid <- function() {
     hex <- paste0(sample(c(0:9, letters[1:6]), 32, replace = TRUE), collapse = "")
@@ -265,16 +300,12 @@ if (export_sv) {
     list(uid = uid, filename = filename)
   }
 
-  seqviewer_dir <- file.path(config$output_dir, "seqviewer")
   datasets_dir  <- file.path(seqviewer_dir, "datasets")
-  staging_dir   <- file.path(seqviewer_dir, "staging")
   dir.create(datasets_dir, recursive = TRUE, showWarnings = FALSE)
-  dir.create(staging_dir,  recursive = TRUE, showWarnings = FALSE)
 
   # 같은 프로젝트 안에서 include_groups로 여러 서브셋(variant)을 따로 export할 수 있도록
-  # variant_label이 있으면 alias/parquet slug/staging 파일명에 반영해 서로 겹치지 않게 한다.
+  # variant_label이 있으면 alias/parquet slug에 반영해 서로 겹치지 않게 한다.
   # 미설정이면 기존과 동일한 이름(하위 호환).
-  variant_label <- cm_cfg$variant_label
   cm_alias <- if (!is.null(variant_label)) {
     paste(basename(config$output_dir), "Coexpression-Modules", variant_label)
   } else {
@@ -306,17 +337,12 @@ if (export_sv) {
                                       sort(unique(as.character(meta[[group_var]])))))
   )
 
-  # 06b_aggregate_seqviewer.R가 "_entries.json"으로 끝나는 파일만 수집하므로
-  # variant_label을 접미사가 아니라 접두어 쪽에 넣어야 한다.
-  staging_filename <- if (!is.null(variant_label)) {
-    paste0("coexpression_modules_", make_alias_slug(variant_label), "_entries.json")
-  } else {
-    "coexpression_modules_entries.json"
-  }
-  staging_path <- file.path(staging_dir, staging_filename)
   write_json(list(cm_entry), staging_path, pretty = TRUE, auto_unbox = TRUE)
   cat(paste("[10_run_coexpression_modules] Seqviewer parquet saved:", cm_info$filename, "\n"))
   cat(paste("[10_run_coexpression_modules] Seqviewer staging JSON saved:", staging_path, "\n"))
+} else {
+  write_json(list(), staging_path, pretty = TRUE, auto_unbox = TRUE)
+  cat(paste("[10_run_coexpression_modules] export_seqviewer=false — empty staging JSON written:", staging_path, "\n"))
 }
 
 cat("[10_run_coexpression_modules] Done.\n")

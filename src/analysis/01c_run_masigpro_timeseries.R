@@ -19,17 +19,34 @@ suppressPackageStartupMessages({
 
 # --- 1. 인자 파싱 ---
 args <- commandArgs(trailingOnly = TRUE)
-if (length(args) != 2) {
-  stop("Usage: Rscript 01c_run_masigpro_timeseries.R [config_path] [output_dir]")
+if (length(args) < 2 || length(args) > 3) {
+  stop("Usage: Rscript 01c_run_masigpro_timeseries.R [config_path] [output_dir] [variant_label]")
 }
-config_path <- args[1]
-output_dir  <- args[2]
+config_path       <- args[1]
+output_dir        <- args[2]
+variant_label_arg <- if (length(args) == 3) args[3] else ""
 
 if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
 
 # --- 2. Config 로드 & time_series 설정 확인 ---
-config <- yaml.load_file(config_path)
-ts_cfg <- config$de_analysis$time_series
+# time_series는 dict(레거시, 단일 트랙) 또는 list(신규, 복수 트랙 — 항목마다 variant_label
+# 필수) 둘 다 지원한다. list일 때 yaml::yaml.load_file()은 이름 없는(names(x)가 NULL인)
+# R list를 반환하므로 이걸로 구분한다. Snakefile의 get_variant_tracks()와 동일한 계약.
+config     <- yaml.load_file(config_path)
+ts_cfg_raw <- config$de_analysis$time_series
+is_multi_track <- !is.null(ts_cfg_raw) && is.null(names(ts_cfg_raw))
+
+if (is_multi_track) {
+  matched <- Filter(function(t) identical(t$variant_label, variant_label_arg), ts_cfg_raw)
+  if (length(matched) != 1) {
+    stop(paste0("[01c_run_masigpro_timeseries] time_series가 list인데 variant_label='",
+                variant_label_arg, "'과 일치하는 트랙을 정확히 1개 찾지 못했습니다 (",
+                length(matched), "개 매칭)."))
+  }
+  ts_cfg <- matched[[1]]
+} else {
+  ts_cfg <- ts_cfg_raw
+}
 
 if (is.null(ts_cfg) || !isTRUE(ts_cfg$enabled)) {
   cat("[01c_run_masigpro_timeseries] time_series.enabled is not true — skipping.\n")
@@ -274,21 +291,38 @@ if (isTRUE(config$export$export_to_excel)) {
 file.copy(config_path, file.path(output_dir, "config_used.yml"), overwrite = TRUE)
 
 # ─────────────────────────────────────────────────────────────
-# 13. CMG-SeqViewer export (parquet + staging JSON) — export_seqviewer: true 일 때만
-#     09_export_multi_group.R과 동일한 헬퍼/디렉토리 규격 사용
+# 13. CMG-SeqViewer export (parquet + staging JSON) — 09_export_multi_group.R과 동일한
+#     헬퍼/디렉토리 규격 사용. Snakemake의 다중 트랙(list) 규칙은 staging JSON 경로를
+#     항상 output으로 요구하므로(와일드카드별 조건부 output 불가), export_seqviewer:
+#     false인 트랙에서도 빈 entries([])로 파일 자체는 항상 만든다.
 # ─────────────────────────────────────────────────────────────
+suppressPackageStartupMessages({
+  library(jsonlite)
+})
+
+make_alias_slug <- function(alias, max_len = 80) {
+  slug <- gsub("[^\\w가-힣]+", "_", alias, perl = TRUE)
+  slug <- gsub("^_|_$", "", slug)
+  substr(slug, 1, max_len)
+}
+
+seqviewer_dir <- file.path(config$output_dir, "seqviewer")
+staging_dir   <- file.path(seqviewer_dir, "staging")
+dir.create(staging_dir, recursive = TRUE, showWarnings = FALSE)
+
+variant_label <- ts_cfg$variant_label
+staging_filename <- if (!is.null(variant_label)) {
+  paste0("time_series_", make_alias_slug(variant_label), "_entries.json")
+} else {
+  "time_series_entries.json"
+}
+staging_path <- file.path(staging_dir, staging_filename)
+
 if (export_sv) {
   suppressPackageStartupMessages({
     library(arrow)
-    library(jsonlite)
     library(tibble)
   })
-
-  make_alias_slug <- function(alias, max_len = 80) {
-    slug <- gsub("[^\\w가-힣]+", "_", alias, perl = TRUE)
-    slug <- gsub("^_|_$", "", slug)
-    substr(slug, 1, max_len)
-  }
 
   new_uuid <- function() {
     hex <- paste0(sample(c(0:9, letters[1:6]), 32, replace = TRUE), collapse = "")
@@ -308,11 +342,8 @@ if (export_sv) {
     list(uid = uid, filename = filename)
   }
 
-  seqviewer_dir <- file.path(config$output_dir, "seqviewer")
   datasets_dir  <- file.path(seqviewer_dir, "datasets")
-  staging_dir   <- file.path(seqviewer_dir, "staging")
   dir.create(datasets_dir, recursive = TRUE, showWarnings = FALSE)
-  dir.create(staging_dir,  recursive = TRUE, showWarnings = FALSE)
 
   parquet_df <- tibble::rownames_to_column(final_df, var = "row_id")
   parquet_df$row_id <- NULL  # gene_id는 이미 컬럼으로 존재
@@ -320,9 +351,8 @@ if (export_sv) {
   series_label <- if (!is.null(series_var)) paste(sort(unique(series_groups)), collapse = " / ") else "single series"
 
   # 같은 프로젝트 안에서 include_groups로 시간축이 다른 여러 시계열(acute/chronic 등)을
-  # 따로 export할 수 있도록 variant_label이 있으면 alias/parquet slug/staging 파일명에
-  # 반영해 서로 겹치지 않게 한다(10_run_coexpression_modules.R과 동일 패턴).
-  variant_label <- ts_cfg$variant_label
+  # 따로 export할 수 있도록 variant_label이 있으면 alias/parquet slug에 반영해 서로
+  # 겹치지 않게 한다(10_run_coexpression_modules.R과 동일 패턴).
   ts_alias <- if (!is.null(variant_label)) {
     paste(basename(config$output_dir), "Time-Series", variant_label)
   } else {
@@ -353,15 +383,12 @@ if (export_sv) {
                                       sort(unique(series_groups))))
   )
 
-  staging_filename <- if (!is.null(variant_label)) {
-    paste0("time_series_", make_alias_slug(variant_label), "_entries.json")
-  } else {
-    "time_series_entries.json"
-  }
-  staging_path <- file.path(staging_dir, staging_filename)
   write_json(list(ts_entry), staging_path, pretty = TRUE, auto_unbox = TRUE)
   cat(paste("[01c_run_masigpro_timeseries] Seqviewer parquet saved:", ts_info$filename, "\n"))
   cat(paste("[01c_run_masigpro_timeseries] Seqviewer staging JSON saved:", staging_path, "\n"))
+} else {
+  write_json(list(), staging_path, pretty = TRUE, auto_unbox = TRUE)
+  cat(paste("[01c_run_masigpro_timeseries] export_seqviewer=false — empty staging JSON written:", staging_path, "\n"))
 }
 
 cat("[01c_run_masigpro_timeseries] Done.\n")

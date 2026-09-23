@@ -1,3 +1,4 @@
+import re
 import yaml
 from pathlib import Path
 
@@ -22,6 +23,49 @@ def get_pairs(config):
     return pairs
 
 PAIRS = get_pairs(config)
+
+# --- 3. Helper Function: time_series/coexpression_modules 복수 트랙(N-track) 정규화 ---
+# de_analysis.time_series / de_analysis.coexpression_modules는 두 형태를 모두 지원한다:
+#   - dict(레거시, 단일 트랙): 폴더 접미사 없음 -> "time_series/", "coexpression_modules/"
+#   - list(신규, 복수 트랙): 각 항목에 variant_label 필수 -> "time_series_{variant_label}/"
+# 폴더 접미사 컨벤션은 19_run_cluster_cross_dataset_comparison.R의
+# collect_cluster_term_sets_rna()가 이미 가정하는 것과 동일하다.
+def get_variant_tracks(cfg_block):
+    if cfg_block is None:
+        return []
+    if isinstance(cfg_block, list):
+        tracks = []
+        for t in cfg_block:
+            if not t.get("enabled", False):
+                continue
+            label = t.get("variant_label")
+            if not label:
+                raise ValueError("time_series/coexpression_modules가 list 형태일 때 각 항목은 "
+                                  "variant_label(non-empty)이 필수입니다: " + repr(t))
+            tracks.append((label, t))
+        return tracks
+    if cfg_block.get("enabled", False):
+        return [("", cfg_block)]
+    return []
+
+def variant_suffix(variant):
+    return f"_{variant}" if variant else ""
+
+TS_TRACKS = get_variant_tracks(config.get("de_analysis", {}).get("time_series"))
+CM_TRACKS = get_variant_tracks(config.get("de_analysis", {}).get("coexpression_modules"))
+TS_VARIANTS = [v for v, _ in TS_TRACKS]
+CM_VARIANTS = [v for v, _ in CM_TRACKS]
+TS_TRACK_BY_VARIANT = {v: t for v, t in TS_TRACKS}
+CM_TRACK_BY_VARIANT = {v: t for v, t in CM_TRACKS}
+TS_SUFFIXES = [variant_suffix(v) for v in TS_VARIANTS]
+CM_SUFFIXES = [variant_suffix(v) for v in CM_VARIANTS]
+# list 스키마(복수 트랙)인지 여부 — dict(레거시)면 와일드카드 없는 고정 경로 규칙을,
+# list(신규)면 {ts_variant}/{cm_variant} 와일드카드 규칙을 사용한다(빈 문자열 와일드카드는
+# Snakemake가 지원하지 않아 두 갈래를 분리해야 함 — 실측 확인됨).
+TS_IS_LIST = isinstance(config.get("de_analysis", {}).get("time_series"), list)
+CM_IS_LIST = isinstance(config.get("de_analysis", {}).get("coexpression_modules"), list)
+TS_VARIANT_CONSTRAINT = "|".join(re.escape(v) for v in TS_VARIANTS)
+CM_VARIANT_CONSTRAINT = "|".join(re.escape(v) for v in CM_VARIANTS)
 
 # --- 3. Target Rule: Define all final outputs ---
 rule all:
@@ -84,14 +128,12 @@ rule all:
             if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
                 and len(config.get("de_analysis", {}).get("pairwise_comparisons", [])) >= 2)
             else []),
-        ([OUTPUT_DIR / "fig_bundles/.time_series_group_bundle_done.flag"]
-            if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("time_series", {}).get("enabled", False))
+        ([OUTPUT_DIR / f"fig_bundles/.time_series{sfx}_group_bundle_done.flag" for sfx in TS_SUFFIXES]
+            if config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
             else []),
-        ([OUTPUT_DIR / "fig_bundles/.coexpression_modules_group_bundle_done.flag"]
+        ([OUTPUT_DIR / f"fig_bundles/.coexpression_modules{sfx}_group_bundle_done.flag" for sfx in CM_SUFFIXES]
             if (config.get("export", {}).get("fig_atlas_bundle", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("run_omnibus_test", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False))
+                and config.get("de_analysis", {}).get("run_omnibus_test", False))
             else []),
 
         # 2b. Pairwise QC Plots (if enabled)
@@ -116,33 +158,25 @@ rule all:
                 and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
             else []),
 
-        # 6a. Time-series result (maSigPro — de_analysis.time_series.enabled 시)
-        (expand(OUTPUT_DIR / "time_series/time_series_significant_genes.csv", allow_missing=True)
-            if config.get("de_analysis", {}).get("time_series", {}).get("enabled", False)
-            else []),
+        # 6a. Time-series result (maSigPro — 트랙별, de_analysis.time_series가 list면 N개)
+        [OUTPUT_DIR / f"time_series{sfx}/time_series_significant_genes.csv" for sfx in TS_SUFFIXES],
 
-        # 6a-1. Time-series 클러스터별 GO/KEGG enrichment (+ term_cluster/rrvgo 요약)
-        (expand([OUTPUT_DIR / "time_series/final_go_results.xlsx",
-                 OUTPUT_DIR / "time_series/final_go_clustered_results.xlsx",
-                 OUTPUT_DIR / "time_series/final_go_rrvgo_clustered_results.xlsx"], allow_missing=True)
-            if (config.get("de_analysis", {}).get("time_series", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("time_series", {}).get("enrichment_enabled", True))
-            else []),
+        # 6a-1. Time-series 클러스터별 GO/KEGG enrichment (+ term_cluster/rrvgo 요약, 트랙별)
+        [OUTPUT_DIR / f"time_series{sfx}/{fname}"
+            for v, sfx in zip(TS_VARIANTS, TS_SUFFIXES)
+            if TS_TRACK_BY_VARIANT[v].get("enrichment_enabled", True)
+            for fname in ["final_go_results.xlsx", "final_go_clustered_results.xlsx", "final_go_rrvgo_clustered_results.xlsx"]],
 
-        # 6b. Coexpression module result (omnibus 유의 유전자 서브셋 — coexpression_modules.enabled 시)
-        (expand(OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv", allow_missing=True)
-            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False))
-            else []),
+        # 6b. Coexpression module result (omnibus 유의 유전자 서브셋 — 트랙별)
+        ([OUTPUT_DIR / f"coexpression_modules{sfx}/coexpression_module_assignments.csv" for sfx in CM_SUFFIXES]
+            if config.get("de_analysis", {}).get("run_omnibus_test", False) else []),
 
-        # 6b-1. Coexpression 모듈별 GO/KEGG enrichment (+ term_cluster/rrvgo 요약)
-        (expand([OUTPUT_DIR / "coexpression_modules/final_go_results.xlsx",
-                 OUTPUT_DIR / "coexpression_modules/final_go_clustered_results.xlsx",
-                 OUTPUT_DIR / "coexpression_modules/final_go_rrvgo_clustered_results.xlsx"], allow_missing=True)
-            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enrichment_enabled", True))
-            else []),
+        # 6b-1. Coexpression 모듈별 GO/KEGG enrichment (+ term_cluster/rrvgo 요약, 트랙별)
+        ([OUTPUT_DIR / f"coexpression_modules{sfx}/{fname}"
+            for v, sfx in zip(CM_VARIANTS, CM_SUFFIXES)
+            if CM_TRACK_BY_VARIANT[v].get("enrichment_enabled", True)
+            for fname in ["final_go_results.xlsx", "final_go_clustered_results.xlsx", "final_go_rrvgo_clustered_results.xlsx"]]
+            if config.get("de_analysis", {}).get("run_omnibus_test", False) else []),
 
         # 7. Google Drive 업로드 (upload.gdrive: true 시)
         ([OUTPUT_DIR / ".gdrive_upload_done.flag"]
@@ -185,145 +219,276 @@ rule export_multi_group:
     shell:
         "Rscript {input.script} {input.config_file} {input.omnibus_csv} {output.csv} > {log} 2>&1"
 
-# Rule 1b-1: Time-series 분석 (maSigPro) — de_analysis.time_series.enabled 시에만 rule all에 편입
-rule run_masigpro_timeseries:
-    input:
-        script = "src/analysis/01c_run_masigpro_timeseries.R",
-        config_file = CONFIG_FILE,
-        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
-        meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
-    output:
-        csv = OUTPUT_DIR / "time_series/time_series_significant_genes.csv",
-        config_copy = OUTPUT_DIR / "time_series/config_used.yml",
-        staging = ([OUTPUT_DIR / "seqviewer/staging/time_series_entries.json"]
-            if config.get("de_analysis", {}).get("time_series", {}).get("export_seqviewer", True)
-            else [])
-    params:
-        out_dir = str(OUTPUT_DIR / "time_series")
-    log:
-        OUTPUT_DIR / "logs/01c_run_masigpro_timeseries.log"
-    conda:
-        R_ENV_NAME
-    shell:
-        # 큰 유전자 집합에서 see.genes의 덴드로그램 처리가 깊은 재귀를 유발해
-        # "C stack usage ... too close to the limit"로 죽는 사례가 확인되어
-        # 실행 전 스택 크기를 늘림.
-        "ulimit -s unlimited; Rscript {input.script} {input.config_file} {params.out_dir} > {log} 2>&1"
+# Rule 1b-1: Time-series 분석 (maSigPro).
+# time_series가 dict(레거시, 단일 트랙)면 고정 경로("time_series/") 규칙을,
+# list(신규, 복수 트랙)면 {ts_variant} 와일드카드 규칙을 쓴다 — 빈 문자열 와일드카드를
+# Snakemake가 지원하지 않아(실측 확인) 두 갈래를 분리했다. 두 형태 모두 두 트랙이면
+# 두 트랙 다 rule all에 동등하게 편입된다.
+if TS_IS_LIST:
+    rule run_masigpro_timeseries:
+        input:
+            script = "src/analysis/01c_run_masigpro_timeseries.R",
+            config_file = CONFIG_FILE,
+            counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+            meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
+        output:
+            csv = OUTPUT_DIR / "time_series_{ts_variant}/time_series_significant_genes.csv",
+            config_copy = OUTPUT_DIR / "time_series_{ts_variant}/config_used.yml",
+            staging = OUTPUT_DIR / "seqviewer/staging/time_series_{ts_variant}_entries.json"
+        params:
+            out_dir = lambda wildcards: str(OUTPUT_DIR / f"time_series_{wildcards.ts_variant}"),
+            variant_label = lambda wildcards: wildcards.ts_variant
+        wildcard_constraints:
+            ts_variant = TS_VARIANT_CONSTRAINT
+        log:
+            OUTPUT_DIR / "logs/01c_run_masigpro_timeseries_{ts_variant}.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            # 큰 유전자 집합에서 see.genes의 덴드로그램 처리가 깊은 재귀를 유발해
+            # "C stack usage ... too close to the limit"로 죽는 사례가 확인되어
+            # 실행 전 스택 크기를 늘림.
+            "ulimit -s unlimited; Rscript {input.script} {input.config_file} {params.out_dir} {params.variant_label} > {log} 2>&1"
+else:
+    rule run_masigpro_timeseries:
+        input:
+            script = "src/analysis/01c_run_masigpro_timeseries.R",
+            config_file = CONFIG_FILE,
+            counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+            meta = lambda wildcards: config["metadata_path"] if "metadata_path" in config else []
+        output:
+            csv = OUTPUT_DIR / "time_series/time_series_significant_genes.csv",
+            config_copy = OUTPUT_DIR / "time_series/config_used.yml",
+            staging = ([OUTPUT_DIR / "seqviewer/staging/time_series_entries.json"]
+                if config.get("de_analysis", {}).get("time_series", {}).get("export_seqviewer", True)
+                else [])
+        params:
+            out_dir = str(OUTPUT_DIR / "time_series")
+        log:
+            OUTPUT_DIR / "logs/01c_run_masigpro_timeseries.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "ulimit -s unlimited; Rscript {input.script} {input.config_file} {params.out_dir} > {log} 2>&1"
 
 # Rule 1b-2: Coexpression module 분석 — omnibus 유의 유전자 서브셋에 한해
-# DEGreport::degPatterns로 클러스터링 (coexpression_modules.enabled 시에만 rule all에 편입)
-rule run_coexpression_modules:
-    input:
-        omnibus_csv = OUTPUT_DIR / "omnibus_test_results.csv",
-        script      = "src/analysis/10_run_coexpression_modules.R",
-        config_file = CONFIG_FILE,
-        counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
-        meta   = lambda wildcards: config["metadata_path"]   if "metadata_path"   in config else []
-    output:
-        csv = OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv",
-        config_copy = OUTPUT_DIR / "coexpression_modules/config_used.yml",
-        staging = ([OUTPUT_DIR / "seqviewer/staging/coexpression_modules_entries.json"]
-            if config.get("de_analysis", {}).get("coexpression_modules", {}).get("export_seqviewer", True)
-            else [])
-    params:
-        out_dir = str(OUTPUT_DIR / "coexpression_modules")
-    log:
-        OUTPUT_DIR / "logs/10_run_coexpression_modules.log"
-    conda:
-        R_ENV_NAME
-    shell:
-        # degPatterns의 덴드로그램 처리가 유의 유전자 수가 많을 때 깊은 재귀를 유발해
-        # "C stack usage ... too close to the limit"로 죽는 사례가 확인되어
-        # 실행 전 스택 크기를 늘림.
-        "ulimit -s unlimited; Rscript {input.script} {input.config_file} {input.omnibus_csv} {params.out_dir} > {log} 2>&1"
+# DEGreport::degPatterns로 클러스터링 (위와 동일한 dict/list 분기 패턴)
+if CM_IS_LIST:
+    rule run_coexpression_modules:
+        input:
+            omnibus_csv = OUTPUT_DIR / "omnibus_test_results.csv",
+            script      = "src/analysis/10_run_coexpression_modules.R",
+            config_file = CONFIG_FILE,
+            counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+            meta   = lambda wildcards: config["metadata_path"]   if "metadata_path"   in config else []
+        output:
+            csv = OUTPUT_DIR / "coexpression_modules_{cm_variant}/coexpression_module_assignments.csv",
+            config_copy = OUTPUT_DIR / "coexpression_modules_{cm_variant}/config_used.yml",
+            staging = OUTPUT_DIR / "seqviewer/staging/coexpression_modules_{cm_variant}_entries.json"
+        params:
+            out_dir = lambda wildcards: str(OUTPUT_DIR / f"coexpression_modules_{wildcards.cm_variant}"),
+            variant_label = lambda wildcards: wildcards.cm_variant
+        wildcard_constraints:
+            cm_variant = CM_VARIANT_CONSTRAINT
+        log:
+            OUTPUT_DIR / "logs/10_run_coexpression_modules_{cm_variant}.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "ulimit -s unlimited; Rscript {input.script} {input.config_file} {input.omnibus_csv} {params.out_dir} {params.variant_label} > {log} 2>&1"
+else:
+    rule run_coexpression_modules:
+        input:
+            omnibus_csv = OUTPUT_DIR / "omnibus_test_results.csv",
+            script      = "src/analysis/10_run_coexpression_modules.R",
+            config_file = CONFIG_FILE,
+            counts = lambda wildcards: config["count_data_path"] if "count_data_path" in config else [],
+            meta   = lambda wildcards: config["metadata_path"]   if "metadata_path"   in config else []
+        output:
+            csv = OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv",
+            config_copy = OUTPUT_DIR / "coexpression_modules/config_used.yml",
+            staging = ([OUTPUT_DIR / "seqviewer/staging/coexpression_modules_entries.json"]
+                if config.get("de_analysis", {}).get("coexpression_modules", {}).get("export_seqviewer", True)
+                else [])
+        params:
+            out_dir = str(OUTPUT_DIR / "coexpression_modules")
+        log:
+            OUTPUT_DIR / "logs/10_run_coexpression_modules.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            # degPatterns의 덴드로그램 처리가 유의 유전자 수가 많을 때 깊은 재귀를 유발해
+            # "C stack usage ... too close to the limit"로 죽는 사례가 확인되어
+            # 실행 전 스택 크기를 늘림.
+            "ulimit -s unlimited; Rscript {input.script} {input.config_file} {input.omnibus_csv} {params.out_dir} > {log} 2>&1"
 
 # Rule 1b-3: Time-series 클러스터별(+전체) GO/KEGG enrichment
-# (time_series.enrichment_enabled 시에만 rule all에 편입)
-rule run_timeseries_enrichment:
-    input:
-        script = "src/analysis/11_run_group_enrichment.R",
-        config_file = CONFIG_FILE,
-        csv = OUTPUT_DIR / "time_series/time_series_significant_genes.csv"
-    output:
-        xlsx = OUTPUT_DIR / "time_series/final_go_results.xlsx",
-        # term_cluster(Jaccard)/rrvgo(의미론적 축약) 그룹별 요약 — 05b/05d와 동일한 컬럼
-        # 계약, 클러스터/모듈 + TOTAL 전체를 대상으로 함(11_run_group_enrichment.R 내부에서
-        # enrichment.term_cluster.enabled / enrichment.rrvgo.enabled=false여도 placeholder를
-        # 항상 만들어서 이 output 선언을 항상 만족시킴)
-        clustered_xlsx = OUTPUT_DIR / "time_series/final_go_clustered_results.xlsx",
-        rrvgo_clustered_xlsx = OUTPUT_DIR / "time_series/final_go_rrvgo_clustered_results.xlsx"
-    params:
-        out_dir = str(OUTPUT_DIR / "time_series")
-    log:
-        OUTPUT_DIR / "logs/11_run_timeseries_enrichment.log"
-    conda:
-        R_ENV_NAME
-    shell:
-        "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster {params.out_dir} > {log} 2>&1"
+if TS_IS_LIST:
+    rule run_timeseries_enrichment:
+        input:
+            script = "src/analysis/11_run_group_enrichment.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "time_series_{ts_variant}/time_series_significant_genes.csv"
+        output:
+            xlsx = OUTPUT_DIR / "time_series_{ts_variant}/final_go_results.xlsx",
+            clustered_xlsx = OUTPUT_DIR / "time_series_{ts_variant}/final_go_clustered_results.xlsx",
+            rrvgo_clustered_xlsx = OUTPUT_DIR / "time_series_{ts_variant}/final_go_rrvgo_clustered_results.xlsx"
+        params:
+            out_dir = lambda wildcards: str(OUTPUT_DIR / f"time_series_{wildcards.ts_variant}")
+        wildcard_constraints:
+            ts_variant = TS_VARIANT_CONSTRAINT
+        log:
+            OUTPUT_DIR / "logs/11_run_timeseries_enrichment_{ts_variant}.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster {params.out_dir} > {log} 2>&1"
+else:
+    rule run_timeseries_enrichment:
+        input:
+            script = "src/analysis/11_run_group_enrichment.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "time_series/time_series_significant_genes.csv"
+        output:
+            xlsx = OUTPUT_DIR / "time_series/final_go_results.xlsx",
+            # term_cluster(Jaccard)/rrvgo(의미론적 축약) 그룹별 요약 — 05b/05d와 동일한 컬럼
+            # 계약, 클러스터/모듈 + TOTAL 전체를 대상으로 함(11_run_group_enrichment.R 내부에서
+            # enrichment.term_cluster.enabled / enrichment.rrvgo.enabled=false여도 placeholder를
+            # 항상 만들어서 이 output 선언을 항상 만족시킴)
+            clustered_xlsx = OUTPUT_DIR / "time_series/final_go_clustered_results.xlsx",
+            rrvgo_clustered_xlsx = OUTPUT_DIR / "time_series/final_go_rrvgo_clustered_results.xlsx"
+        params:
+            out_dir = str(OUTPUT_DIR / "time_series")
+        log:
+            OUTPUT_DIR / "logs/11_run_timeseries_enrichment.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster {params.out_dir} > {log} 2>&1"
 
 # Rule 1b-3-fig: fig-atlas 그림 번들 export — time-series 클러스터별 heatmap/GO
 # (export.fig_atlas_bundle.enabled 시). 계약서: integrated_bundle_contract.md.
-rule export_timeseries_group_bundle:
-    input:
-        script = "src/analysis/16_export_integrated_group_bundle.R",
-        config_file = CONFIG_FILE,
-        csv = OUTPUT_DIR / "time_series/time_series_significant_genes.csv",
-        # go_bp_*_dot_bundle/go_kegg_*_bar_chart_bundle의 소스(go_termcluster_*.csv,
-        # kegg_enrichment_*.csv)는 11_run_group_enrichment.R이 만든다 — 이 규칙이 먼저
-        # 끝나야만 그 파일들이 존재하므로 명시적으로 의존성을 건다(안 그러면 Snakemake가
-        # 두 규칙을 병렬/임의 순서로 스케줄링해 GO 번들이 조용히 스킵될 수 있음).
-        enrichment_xlsx = OUTPUT_DIR / "time_series/final_go_results.xlsx"
-    output:
-        flag = touch(OUTPUT_DIR / "fig_bundles/.time_series_group_bundle_done.flag")
-    params:
-        out_dir = str(OUTPUT_DIR / "time_series")
-    log:
-        OUTPUT_DIR / "logs/16_export_timeseries_group_bundle.log"
-    conda:
-        R_ENV_NAME
-    shell:
-        "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster ts_cluster {params.out_dir} > {log} 2>&1"
+if TS_IS_LIST:
+    rule export_timeseries_group_bundle:
+        input:
+            script = "src/analysis/16_export_integrated_group_bundle.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "time_series_{ts_variant}/time_series_significant_genes.csv",
+            enrichment_xlsx = OUTPUT_DIR / "time_series_{ts_variant}/final_go_results.xlsx"
+        output:
+            flag = touch(OUTPUT_DIR / "fig_bundles/.time_series_{ts_variant}_group_bundle_done.flag")
+        params:
+            out_dir = lambda wildcards: str(OUTPUT_DIR / f"time_series_{wildcards.ts_variant}")
+        wildcard_constraints:
+            ts_variant = TS_VARIANT_CONSTRAINT
+        log:
+            OUTPUT_DIR / "logs/16_export_timeseries_group_bundle_{ts_variant}.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster ts_cluster {params.out_dir} > {log} 2>&1"
+else:
+    rule export_timeseries_group_bundle:
+        input:
+            script = "src/analysis/16_export_integrated_group_bundle.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "time_series/time_series_significant_genes.csv",
+            # go_bp_*_dot_bundle/go_kegg_*_bar_chart_bundle의 소스(go_termcluster_*.csv,
+            # kegg_enrichment_*.csv)는 11_run_group_enrichment.R이 만든다 — 이 규칙이 먼저
+            # 끝나야만 그 파일들이 존재하므로 명시적으로 의존성을 건다(안 그러면 Snakemake가
+            # 두 규칙을 병렬/임의 순서로 스케줄링해 GO 번들이 조용히 스킵될 수 있음).
+            enrichment_xlsx = OUTPUT_DIR / "time_series/final_go_results.xlsx"
+        output:
+            flag = touch(OUTPUT_DIR / "fig_bundles/.time_series_group_bundle_done.flag")
+        params:
+            out_dir = str(OUTPUT_DIR / "time_series")
+        log:
+            OUTPUT_DIR / "logs/16_export_timeseries_group_bundle.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} cluster_id cluster ts_cluster {params.out_dir} > {log} 2>&1"
 
 # Rule 1b-4: Coexpression 모듈별(+전체) GO/KEGG enrichment
-# (coexpression_modules.enrichment_enabled 시에만 rule all에 편입)
-rule run_coexpression_enrichment:
-    input:
-        script = "src/analysis/11_run_group_enrichment.R",
-        config_file = CONFIG_FILE,
-        csv = OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv"
-    output:
-        xlsx = OUTPUT_DIR / "coexpression_modules/final_go_results.xlsx",
-        clustered_xlsx = OUTPUT_DIR / "coexpression_modules/final_go_clustered_results.xlsx",
-        rrvgo_clustered_xlsx = OUTPUT_DIR / "coexpression_modules/final_go_rrvgo_clustered_results.xlsx"
-    params:
-        out_dir = str(OUTPUT_DIR / "coexpression_modules")
-    log:
-        OUTPUT_DIR / "logs/11_run_coexpression_enrichment.log"
-    conda:
-        R_ENV_NAME
-    shell:
-        "Rscript {input.script} {input.config_file} {input.csv} module_id module {params.out_dir} > {log} 2>&1"
+if CM_IS_LIST:
+    rule run_coexpression_enrichment:
+        input:
+            script = "src/analysis/11_run_group_enrichment.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "coexpression_modules_{cm_variant}/coexpression_module_assignments.csv"
+        output:
+            xlsx = OUTPUT_DIR / "coexpression_modules_{cm_variant}/final_go_results.xlsx",
+            clustered_xlsx = OUTPUT_DIR / "coexpression_modules_{cm_variant}/final_go_clustered_results.xlsx",
+            rrvgo_clustered_xlsx = OUTPUT_DIR / "coexpression_modules_{cm_variant}/final_go_rrvgo_clustered_results.xlsx"
+        params:
+            out_dir = lambda wildcards: str(OUTPUT_DIR / f"coexpression_modules_{wildcards.cm_variant}")
+        wildcard_constraints:
+            cm_variant = CM_VARIANT_CONSTRAINT
+        log:
+            OUTPUT_DIR / "logs/11_run_coexpression_enrichment_{cm_variant}.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} module_id module {params.out_dir} > {log} 2>&1"
+else:
+    rule run_coexpression_enrichment:
+        input:
+            script = "src/analysis/11_run_group_enrichment.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv"
+        output:
+            xlsx = OUTPUT_DIR / "coexpression_modules/final_go_results.xlsx",
+            clustered_xlsx = OUTPUT_DIR / "coexpression_modules/final_go_clustered_results.xlsx",
+            rrvgo_clustered_xlsx = OUTPUT_DIR / "coexpression_modules/final_go_rrvgo_clustered_results.xlsx"
+        params:
+            out_dir = str(OUTPUT_DIR / "coexpression_modules")
+        log:
+            OUTPUT_DIR / "logs/11_run_coexpression_enrichment.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} module_id module {params.out_dir} > {log} 2>&1"
 
 # Rule 1b-4-fig: fig-atlas 그림 번들 export — coexpression 모듈별 heatmap/GO
 # (export.fig_atlas_bundle.enabled 시). 계약서: integrated_bundle_contract.md.
-rule export_coexpression_group_bundle:
-    input:
-        script = "src/analysis/16_export_integrated_group_bundle.R",
-        config_file = CONFIG_FILE,
-        csv = OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv",
-        # 위 export_timeseries_group_bundle과 동일한 이유 — 11_run_group_enrichment.R이
-        # go_termcluster_*.csv/kegg_enrichment_*.csv를 다 쓴 뒤에만 실행되도록 보장.
-        enrichment_xlsx = OUTPUT_DIR / "coexpression_modules/final_go_results.xlsx"
-    output:
-        flag = touch(OUTPUT_DIR / "fig_bundles/.coexpression_modules_group_bundle_done.flag")
-    params:
-        out_dir = str(OUTPUT_DIR / "coexpression_modules")
-    log:
-        OUTPUT_DIR / "logs/16_export_coexpression_group_bundle.log"
-    conda:
-        R_ENV_NAME
-    shell:
-        "Rscript {input.script} {input.config_file} {input.csv} module_id module coexp_module {params.out_dir} > {log} 2>&1"
+if CM_IS_LIST:
+    rule export_coexpression_group_bundle:
+        input:
+            script = "src/analysis/16_export_integrated_group_bundle.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "coexpression_modules_{cm_variant}/coexpression_module_assignments.csv",
+            enrichment_xlsx = OUTPUT_DIR / "coexpression_modules_{cm_variant}/final_go_results.xlsx"
+        output:
+            flag = touch(OUTPUT_DIR / "fig_bundles/.coexpression_modules_{cm_variant}_group_bundle_done.flag")
+        params:
+            out_dir = lambda wildcards: str(OUTPUT_DIR / f"coexpression_modules_{wildcards.cm_variant}")
+        wildcard_constraints:
+            cm_variant = CM_VARIANT_CONSTRAINT
+        log:
+            OUTPUT_DIR / "logs/16_export_coexpression_group_bundle_{cm_variant}.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} module_id module coexp_module {params.out_dir} > {log} 2>&1"
+else:
+    rule export_coexpression_group_bundle:
+        input:
+            script = "src/analysis/16_export_integrated_group_bundle.R",
+            config_file = CONFIG_FILE,
+            csv = OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv",
+            # 위 export_timeseries_group_bundle과 동일한 이유 — 11_run_group_enrichment.R이
+            # go_termcluster_*.csv/kegg_enrichment_*.csv를 다 쓴 뒤에만 실행되도록 보장.
+            enrichment_xlsx = OUTPUT_DIR / "coexpression_modules/final_go_results.xlsx"
+        output:
+            flag = touch(OUTPUT_DIR / "fig_bundles/.coexpression_modules_group_bundle_done.flag")
+        params:
+            out_dir = str(OUTPUT_DIR / "coexpression_modules")
+        log:
+            OUTPUT_DIR / "logs/16_export_coexpression_group_bundle.log"
+        conda:
+            R_ENV_NAME
+        shell:
+            "Rscript {input.script} {input.config_file} {input.csv} module_id module coexp_module {params.out_dir} > {log} 2>&1"
 
 # Rule 1c: Run Pairwise DE
 # Note: If final_de_results.csv already exists, Snakemake will skip this rule
@@ -834,12 +999,9 @@ rule generate_summary_report:
         de_results  = expand(OUTPUT_DIR / "pairwise/{pair}/final_de_results.csv", pair=PAIRS),
         enrich_done = expand(OUTPUT_DIR / "pairwise/{pair}/.enrichment_done.flag", pair=PAIRS),
         volcanos    = expand(OUTPUT_DIR / "pairwise/{pair}/volcano_plot.png", pair=PAIRS),
-        time_series = ([OUTPUT_DIR / "time_series/time_series_significant_genes.csv"]
-            if config.get("de_analysis", {}).get("time_series", {}).get("enabled", False)
-            else []),
-        coexpression_modules = ([OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv"]
-            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False))
+        time_series = [OUTPUT_DIR / f"time_series{sfx}/time_series_significant_genes.csv" for sfx in TS_SUFFIXES],
+        coexpression_modules = ([OUTPUT_DIR / f"coexpression_modules{sfx}/coexpression_module_assignments.csv" for sfx in CM_SUFFIXES]
+            if config.get("de_analysis", {}).get("run_omnibus_test", False)
             else []),
     output:
         html = OUTPUT_DIR / "summary_report.html"
@@ -862,15 +1024,9 @@ rule aggregate_seqviewer:
             if (config.get("de_analysis", {}).get("run_omnibus_test", False)
                 and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
             else [],
-        ts_staging = lambda wildcards: [OUTPUT_DIR / "seqviewer/staging/time_series_entries.json"]
-            if (config.get("de_analysis", {}).get("time_series", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("time_series", {}).get("export_seqviewer", True))
-            else [],
-        cm_staging = lambda wildcards: [OUTPUT_DIR / "seqviewer/staging/coexpression_modules_entries.json"]
-            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("export_seqviewer", True))
-            else [],
+        ts_staging = lambda wildcards: [OUTPUT_DIR / f"seqviewer/staging/time_series{sfx}_entries.json" for sfx in TS_SUFFIXES],
+        cm_staging = lambda wildcards: ([OUTPUT_DIR / f"seqviewer/staging/coexpression_modules{sfx}_entries.json" for sfx in CM_SUFFIXES]
+            if config.get("de_analysis", {}).get("run_omnibus_test", False) else []),
         cc_staging = lambda wildcards: [OUTPUT_DIR / "seqviewer/staging/cross_condition_entries.json"]
             if (config.get("enrichment", {}).get("cross_condition", {}).get("enabled", False)
                 and config.get("enrichment", {}).get("cross_condition", {}).get("export_seqviewer", True))
@@ -931,26 +1087,18 @@ rule upload_to_gdrive:
             if (config.get("de_analysis", {}).get("run_omnibus_test", False)
                 and config.get("de_analysis", {}).get("multi_group_export", {}).get("enabled", False))
             else []),
-        time_series = ([OUTPUT_DIR / "time_series/time_series_significant_genes.csv"]
-            if config.get("de_analysis", {}).get("time_series", {}).get("enabled", False)
-            else []),
-        time_series_enrichment = ([OUTPUT_DIR / "time_series/final_go_results.xlsx",
-                                    OUTPUT_DIR / "time_series/final_go_clustered_results.xlsx",
-                                    OUTPUT_DIR / "time_series/final_go_rrvgo_clustered_results.xlsx"]
-            if (config.get("de_analysis", {}).get("time_series", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("time_series", {}).get("enrichment_enabled", True))
-            else []),
-        coexpression_modules = ([OUTPUT_DIR / "coexpression_modules/coexpression_module_assignments.csv"]
-            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False))
-            else []),
-        coexpression_enrichment = ([OUTPUT_DIR / "coexpression_modules/final_go_results.xlsx",
-                                     OUTPUT_DIR / "coexpression_modules/final_go_clustered_results.xlsx",
-                                     OUTPUT_DIR / "coexpression_modules/final_go_rrvgo_clustered_results.xlsx"]
-            if (config.get("de_analysis", {}).get("run_omnibus_test", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enabled", False)
-                and config.get("de_analysis", {}).get("coexpression_modules", {}).get("enrichment_enabled", True))
-            else []),
+        time_series = [OUTPUT_DIR / f"time_series{sfx}/time_series_significant_genes.csv" for sfx in TS_SUFFIXES],
+        time_series_enrichment = [OUTPUT_DIR / f"time_series{sfx}/{fname}"
+            for v, sfx in zip(TS_VARIANTS, TS_SUFFIXES)
+            if TS_TRACK_BY_VARIANT[v].get("enrichment_enabled", True)
+            for fname in ["final_go_results.xlsx", "final_go_clustered_results.xlsx", "final_go_rrvgo_clustered_results.xlsx"]],
+        coexpression_modules = ([OUTPUT_DIR / f"coexpression_modules{sfx}/coexpression_module_assignments.csv" for sfx in CM_SUFFIXES]
+            if config.get("de_analysis", {}).get("run_omnibus_test", False) else []),
+        coexpression_enrichment = ([OUTPUT_DIR / f"coexpression_modules{sfx}/{fname}"
+            for v, sfx in zip(CM_VARIANTS, CM_SUFFIXES)
+            if CM_TRACK_BY_VARIANT[v].get("enrichment_enabled", True)
+            for fname in ["final_go_results.xlsx", "final_go_clustered_results.xlsx", "final_go_rrvgo_clustered_results.xlsx"]]
+            if config.get("de_analysis", {}).get("run_omnibus_test", False) else []),
     output:
         flag = touch(OUTPUT_DIR / ".gdrive_upload_done.flag")
     params:

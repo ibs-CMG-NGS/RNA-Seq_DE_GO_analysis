@@ -311,8 +311,17 @@ if (tc_enabled || rr_enabled) {
             cat(sprintf("[rrvgo] %s/%s: %d terms -> %d parent groups\n",
                         label, ont, length(rr_sig_ids), length(unique(reducedTerms$parent))))
 
-            sp <- tryCatch(scatterPlot(rr_result$simMatrix, reducedTerms), error = function(e) NULL)
-            if (!is.null(sp)) ggsave(out_rr_scatter, plot = sp, width = 10, height = 8, bg = "white")
+            # scatterPlot()이 반환하는 ggplot 객체는 지연 평가(lazy evaluation)라, 구성
+            # 자체는 성공해도(예: 항목이 너무 적어 cmdscale()이 기대한 컬럼(V2 등)을 못 만든
+            # 경우) 실제 렌더링은 ggsave() 시점에야 실패한다 — 그래서 ggsave까지 함께 감싼다.
+            sp_ok <- tryCatch({
+              sp <- scatterPlot(rr_result$simMatrix, reducedTerms)
+              ggsave(out_rr_scatter, plot = sp, width = 10, height = 8, bg = "white")
+              TRUE
+            }, error = function(e) {
+              cat(paste("[rrvgo]", label, ont, "scatterPlot/ggsave failed (skipped):", conditionMessage(e), "\n"))
+              FALSE
+            })
 
             tm_ok <- tryCatch({
               png(out_rr_treemap, width = 12, height = 8, units = "in", res = 300, bg = "white")

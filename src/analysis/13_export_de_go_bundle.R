@@ -18,6 +18,17 @@ suppressPackageStartupMessages({
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+# enrichKEGG/enrichGO가 0건일 때 03_enrichment_analysis.R이 as.data.frame(NULL) 결과를
+# write.csv()로 그대로 저장하면 컬럼 없는 `""` 한 줄짜리 파일이 생겨 read.csv()가
+# "first five rows are empty"로 죽는 경우가 있음 — 0건(빈 결과)과 동일하게 취급하고
+# 건너뛴다.
+safe_read_csv <- function(path, ...) {
+  tryCatch(read.csv(path, ...), error = function(e) {
+    cat(sprintf("  [safe_read_csv] %s unreadable (%s) — treating as 0 rows.\n", path, conditionMessage(e)))
+    data.frame()
+  })
+}
+
 # --- 1. 인자 파싱 & config 로드 ---
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 4) {
@@ -144,7 +155,7 @@ if (file.exists(de_xlsx)) {
 for (gs in c("up", "down")) {
   tc_path <- file.path(pair_output_dir, "enrichment", sprintf("go_termcluster_%s_BP.csv", gs))
   if (!file.exists(tc_path)) next
-  d <- read.csv(tc_path, stringsAsFactors = FALSE)
+  d <- safe_read_csv(tc_path, stringsAsFactors = FALSE)
   if (nrow(d) == 0) next
 
   cluster_size <- table(d$cluster)
@@ -190,7 +201,7 @@ for (gs in c("up", "down")) {
 for (gs in c("up", "down")) {
   kegg_path <- file.path(pair_output_dir, "enrichment", sprintf("kegg_enrichment_%s.csv", gs))
   if (!file.exists(kegg_path)) next
-  d <- read.csv(kegg_path, stringsAsFactors = FALSE)
+  d <- safe_read_csv(kegg_path, stringsAsFactors = FALSE)
   if (nrow(d) == 0) next
 
   out <- data.frame(
@@ -229,7 +240,7 @@ for (ont in c("BP", "CC", "MF")) {
   for (gs in c("up", "down")) {
     rr_path <- file.path(pair_output_dir, "enrichment", sprintf("go_rrvgo_%s_%s.csv", gs, ont))
     if (!file.exists(rr_path)) next
-    d <- read.csv(rr_path, stringsAsFactors = FALSE)
+    d <- safe_read_csv(rr_path, stringsAsFactors = FALSE)
     if (nrow(d) == 0) next
     write_bundle_csv(d, sprintf("go_%s_%s_rrvgo_treemap", tolower(ont), gs))
   }

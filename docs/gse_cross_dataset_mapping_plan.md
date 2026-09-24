@@ -6,7 +6,7 @@ CNS(중추신경계) 손상 관련 공공 GEO RNA-seq 데이터셋 8개를 확�
 pairwise DE / time-series / coexpression module 분석을 파이프라인화했다. 이 문서는
 그 다음 단계 — 프로젝트를 넘나드는 **cross-dataset 메타분석**을 어떤 축으로,
 어떤 비교 쌍으로 진행할지에 대한 매핑안이다. 실제 실행 스크립트
-(`18_run_cross_dataset_go_comparison.R`, `19_run_cluster_cross_dataset_comparison.R`)의
+(`run_cross_dataset_go_comparison.R`, `run_cluster_cross_dataset_comparison.R`)의
 사용법은 `docs/CROSS_DATASET_GUIDE.md`를 참고.
 
 **중요**: 이 문서의 시점(timepoint)·조직·축 배정은 각 데이터셋의 메타데이터
@@ -21,8 +21,8 @@ pairwise DE / time-series / coexpression module 분석을 파이프라인화했�
 
 | 티어 | 데이터셋 | 근거 |
 |---|---|---|
-| **Tier 1** — 즉시 사용, 신뢰도 높음 | GSE104036, GSE205486 | replicate 정상(조건당 n=3 이상), 설계 문제 없음, time_series/coexpr 트랙 보유 — 축 1~4의 중심축 |
-| **Tier 2** — 사용 가능, 캐비어트 동반 | GSE142445 | 트랙 보유·축 1~3 참여 가능하나 조건당 n=1이라(4-2절) pairwise(18번)는 보조적으로만, time_series(19번) 우선 신뢰 |
+| **Tier 1** — 즉시 사용, 신뢰도 높음 | GSE104036, GSE205486 | replicate 정상(조건당 n=3 이상), 설계 문제 없음, time_series/coexpr 트랙 완료(8절) — 축 1~4의 중심축 |
+| **Tier 2** — 사용 가능, 캐비어트 동반 | GSE142445 | 트랙 보유·축 1~3 참여 가능하나 조건당 n=1이라(4-2절) pairwise(run_cross_dataset_go_comparison.R)는 보조적으로만, time_series(run_cluster_cross_dataset_comparison.R) 우선 신뢰 |
 | | GSE326470 | replicate 정상이나 원발 병소가 아닌 원격 조직 + rat — 축 4(탐색적)에만 |
 | | GSE286075 | replicate 정상이나 bulk가 아닌 세포타입(성상세포) 특이 신호 — 보조 비교에만 |
 | **Tier 3** — 이번 라운드 제외, 재작업 시 재검토 | GSE173544 | 실제 시점(7주)이 현재 축의 acute/chronic 기준과 맞지 않음(4-1절) — "매우 만성" 축이 생기면 재검토 |
@@ -88,14 +88,14 @@ GSE234052(잔차 df=0)처럼 크래시는 안 나지만, 유전자별 분산 추
 유전자의 dispersion trend curve(shrinkage)에 거의 전적으로 의존한다는 뜻 —
 개별 유전자의 padj를 액면 그대로 신뢰하기 어렵다.
 
-- **pairwise DE**(`18_run_cross_dataset_go_comparison.R`이 쓰는 단위)가 가장
+- **pairwise DE**(`run_cross_dataset_go_comparison.R`이 쓰는 단위)가 가장
   취약함 — n=1 vs n=3 비교는 그 개체 하나의 우연한 변동에 좌우되기 쉬움.
-- **time_series**(`19_run_cluster_cross_dataset_comparison.R`이 쓰는 단위)는
+- **time_series**(`run_cluster_cross_dataset_comparison.R`이 쓰는 단위)는
   상대적으로 낫다 — maSigPro 다항회귀가 9개 조건 전체의 시간축 정보를 함께
   써서 추세를 추정하므로 개별 시점 n=1이 부분적으로 보완됨.
-- **권장**: GSE142445가 관여하는 모든 pairwise(18번) 기반 비교(축 1/2/3)는
+- **권장**: GSE142445가 관여하는 모든 pairwise(run_cross_dataset_go_comparison.R) 기반 비교(축 1/2/3)는
   GSE104036·GSE205486처럼 진짜 replicate가 있는 데이터셋과 같은 방향으로 나오는
-  term만 우선 신뢰하고, 가능하면 19번(time_series 클러스터) 결과로 교차검증할 것.
+  term만 우선 신뢰하고, 가능하면 run_cluster_cross_dataset_comparison.R(time_series 클러스터) 결과로 교차검증할 것.
   padj 단독보다 log2FC 크기 + pairwise/time_series 양쪽 일관성을 함께 볼 것.
 
 ### 4-3. GSE155610 — 조직 confounding + 비교 축 자체가 다름 (2중 문제)
@@ -140,10 +140,10 @@ confounding을 없애더라도, 이 데이터셋을 다른 데이터셋들의 `A
 실제 시점이 달라도 추상화된 라벨로 묶을 수 있다 — 아래 축들은 전부 이 메커니즘
 그대로 표현 가능(코드 변경 불필요).
 
-- `18_run_cross_dataset_go_comparison.R`: pairwise GO/KEGG term 비교(common/flip/
+- `run_cross_dataset_go_comparison.R`: pairwise GO/KEGG term 비교(common/flip/
   exclusive/mixed). `pair_map` 기반 — time_series/coexpression 트랙이 없는
   데이터셋도 참여 가능.
-- `19_run_cluster_cross_dataset_comparison.R`: time_series/coexpression 클러스터의
+- `run_cluster_cross_dataset_comparison.R`: time_series/coexpression 클러스터의
   GO term-set Jaccard 매칭. 데이터 기반 자동 매칭이라 `pair_map` 불필요하지만,
   **트랙이 있는 데이터셋끼리만** 비교 가능(GSE104036/142445/205486만 해당).
 
@@ -151,10 +151,12 @@ confounding을 없애더라도, 이 데이터셋을 다른 데이터셋들의 `A
 
 ### 축 1 — 뇌졸중 급성기, 뇌 조직, 마우스 한정 (1차 검증용, 신뢰도 최고)
 
-같은 손상모델·조직·종에 시점도 겹쳐 매칭 근거가 가장 탄탄하다. `18`, `19` 둘 다
-가능 — 파이프라인/매핑 로직 자체의 정합성을 먼저 이걸로 검증하는 것을 권장.
-**단, GSE142445는 조건당 n=1이라(4절) pairwise(18번) 결과는 보조적으로만 보고
-time_series 클러스터(19번) 결과를 우선 신뢰할 것.**
+같은 손상모델·조직·종에 시점도 겹쳐 매칭 근거가 가장 탄탄하다.
+`run_cross_dataset_go_comparison.R`, `run_cluster_cross_dataset_comparison.R`
+둘 다 가능 — 파이프라인/매핑 로직 자체의 정합성을 먼저 이걸로 검증하는 것을
+권장. **단, GSE142445는 조건당 n=1이라(4절) pairwise(run_cross_dataset_go_comparison.R)
+결과는 보조적으로만 보고 time_series 클러스터(run_cluster_cross_dataset_comparison.R)
+결과를 우선 신뢰할 것.**
 
 | 정식 이름 | GSE104036 (ipsi) | GSE142445 (ipsi) |
 |---|---|---|
@@ -169,7 +171,7 @@ GSE104036의 6hr/12hr 시점은 GSE142445에 대응 시점이 없어 이 cross-d
 
 24h를 경계로 잡고, 각 데이터셋에서 그 경계에 가장 가까운 시점을 선택(급성은
 "경계에 가장 가까운 늦은 시점", 만성은 "가장 늦은 시점"을 기본 규칙으로 채택 —
-반응 크기가 시점 끝에서 가장 뚜렷하다는 가정). 18번만 가능(19번은 데이터셋별
+반응 크기가 시점 끝에서 가장 뚜렷하다는 가정). run_cross_dataset_go_comparison.R만 가능(run_cluster_cross_dataset_comparison.R은 데이터셋별
 자체 시간축을 이미 쓰므로 이 축과는 별개 실행).
 
 | 정식 이름 | GSE104036 | GSE142445 | GSE205486 | GSE326470 |
@@ -232,10 +234,32 @@ GSE104036의 3h·6h, GSE142445의 4h와 겹치는 급성 초기라 — 축 1의
 
 ## 8. 현재 진행 상태
 
-- GSE104036, GSE142445: time_series(ipsi+contra 2트랙 동등 실행)/coexpression
-  모듈 분석을 포함한 전체 파이프라인 실행 중 — 이 문서 작성 시점 기준
-  GSE142445 완료, GSE104036 96% 진행.
-- GSE205486: time_series(Lesion+Naive 통합)/coexpression(Lesion 주/Naive 보조)
-  기완료.
-- 위 축 1~4의 cross-dataset config(`configs/cross_dataset_gse-*.yaml`)는 아직
-  작성 전 — 이 매핑안 검토/확정 후 작성 예정.
+- GSE142445, GSE104036: time_series(ipsi+contra 2트랙 동등 실행)/coexpression
+  모듈 분석 포함 전체 파이프라인 완료(GDrive 업로드까지).
+- GSE326470: time_series는 maSigPro의 시점(time point) 최소 요구(3개 이상)를
+  Male 스트라텀도 충족 못 해(Day7/Day30, 2개뿐) 비활성화 확정 — coexpression만
+  완료.
+- **GSE205486 — 정정 + 완료**: 앞서 이 절에서 "완료"라고 기록했었는데 실제로는
+  config에 `time_series`/`coexpression_modules`가 설정만 되어 있고 한 번도
+  실행된 적이 없었다(축 2/축 4 cross-dataset cluster 비교가 "0개 유의 클러스터"로
+  조용히 건너뛰어지는 걸 보고 뒤늦게 발견). 실행 중 두 번째 문제도 발견 —
+  `coexpression_modules`가 dict(단일 트랙)인데 `variant_label: lesion`이 남아있어
+  R 스크립트가 쓰는 staging 파일명과 Snakefile이 기대하는 파일명이 어긋나
+  Snakemake가 "output 미생성"으로 판단해 이미 완성된 CSV 등을 통째로 삭제하던
+  버그였다 — `variant_label` 제거 후 재실행해 **완전히 완료**(GDrive 업로드까지).
+- 축 1~4 + 보조 비교의 cross-dataset config 5개(`configs/cross_dataset_gse-*.yaml`)
+  전부 **GO 비교(pairwise)와 cluster 비교(time_series/coexpr Jaccard) 둘 다
+  실행 완료**. 주목할 만한 신규 발견: 축 3(뇌 vs 척수)에서 GSE142445(뇌졸중,
+  뇌)와 GSE205486(척수손상) 사이 coexpression 모듈 한 쌍이 Jaccard 0.696(공유
+  39/합집합 56 term)으로 겹침 — 서로 다른 조직의 손상 반응인데도 거의 동일한
+  발현 패턴 모듈이 존재한다는 뜻. `run_cross_dataset_go_comparison.R`/
+  `run_cluster_cross_dataset_comparison.R` 산출물은 각각
+  `output/cross_dataset_gse-{acute-brain,acute-vs-chronic,brain-vs-spinalcord,
+  primary-vs-remote,bulk-vs-astrocyte}/`에 있다.
+- **1단계(term-level p-value 결합, Fisher's method/Stouffer's Z) 구현 완료** —
+  `run_cross_dataset_go_comparison.R`에 `meta_analysis` 옵션으로 추가됨(순수
+  additive, 기존 common/flip/exclusive/mixed 결과는 그대로 유지). GSE142445가
+  관여하는 축 1~3은 `method: stouffer` + `weights: {GSE142445: 0.5}`로 n=1
+  캐비어트(4-2절)를 실제 통계 결합에 반영해뒀다. 사용법은
+  `docs/CROSS_DATASET_GUIDE.md`의 `meta_analysis` 절 참고.
+- 2단계(유전자 log2FC 레벨 메타분석, 오소로그 매핑 선행 필요)는 아직 범위 밖.

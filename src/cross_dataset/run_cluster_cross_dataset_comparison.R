@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
-# 19_run_cluster_cross_dataset_comparison.R
+# run_cluster_cross_dataset_comparison.R
 #
-# 18_run_cross_dataset_go_comparison.R은 "pairwise DE 비교"(조건 vs Control) 단위로
+# run_cross_dataset_go_comparison.R은 "pairwise DE 비교"(조건 vs Control) 단위로
 # 데이터셋 간 GO term을 비교했다. 이 스크립트는 그 축을 한 단계 더 확장해서
 # maSigPro time-series 클러스터(01c) / DEGreport coexpression module(10) 각각을
 # "같은 반응 패턴을 보이는 유전자 묶음"으로 보고, 데이터셋 쌍마다 모든 클러스터/모듈
@@ -19,12 +19,12 @@
 # (그쪽은 mouse 1개 + human 1개로 하드코딩되어 있었음 — 여기서는 데이터셋 2개 이상
 # 임의 조합으로 일반화: combn(dataset_labels, 2)로 모든 쌍에 대해 반복 수행.)
 #
-# datasets[].assay(기본 "rna", 18번과 동일한 프리셋 개념)로 클러스터/모듈 GO 파일
+# datasets[].assay(기본 "rna", run_cross_dataset_go_comparison.R과 동일한 프리셋 개념)로 클러스터/모듈 GO 파일
 # 탐색 방식이 갈린다(직접 대조 확인) — RNA는 "time_series[_{variant}]/" 폴더명
 # 접미사, ATAC은 "time_series/{variant}/go_enrichment/" 중첩 서브폴더 + 파일명
 # 접두사(masigpro_cluster_/module_)가 다르다.
 #
-# 사용법: Rscript 19_run_cluster_cross_dataset_comparison.R <cross_dataset_config.yaml>
+# 사용법: Rscript run_cluster_cross_dataset_comparison.R <cross_dataset_config.yaml>
 
 suppressPackageStartupMessages({
   library(yaml)
@@ -35,7 +35,7 @@ suppressPackageStartupMessages({
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 1) {
-  stop("Usage: Rscript 19_run_cluster_cross_dataset_comparison.R <cross_dataset_config.yaml>")
+  stop("Usage: Rscript run_cluster_cross_dataset_comparison.R <cross_dataset_config.yaml>")
 }
 cross_cfg <- yaml::read_yaml(args[1])
 output_dir <- cross_cfg$output_dir %||% stop("[FATAL] output_dir not set in config.")
@@ -52,7 +52,7 @@ names(project_cfgs) <- dataset_labels
 # 프로젝트 config의 output_dir은 그 프로젝트의 "본가" 레포(RNA-Seq_DE_GO_analysis
 # 또는 atac-seq-da-analysis) 작업 디렉토리 기준 상대경로다 — 이 스크립트는 항상
 # RNA-Seq_DE_GO_analysis에서 실행되므로 다른 레포(ATAC)의 상대 output_dir을 그대로
-# 쓰면 엉뚱한 경로가 된다(18번과 동일 문제, 실측으로 확인된 버그). datasets[].config
+# 쓰면 엉뚱한 경로가 된다(run_cross_dataset_go_comparison.R과 동일 문제, 실측으로 확인된 버그). datasets[].config
 # 파일이 위치한 레포 루트("<repo>/configs/config_X.yml" 관례) 기준으로 resolve한다.
 is_abs_path <- function(p) grepl("^/", p)
 config_repo_root <- function(config_path) dirname(dirname(normalizePath(config_path)))
@@ -212,10 +212,20 @@ run_comparison_for_pair <- function(label_a, label_b, mode, title_prefix, file_p
          subtitle = "값 = |공통 유의 GO term| / |합집합 유의 GO term|") +
     theme_minimal(base_size = 11) +
     theme(axis.text.x = element_text(angle = 30, hjust = 1))
-  ggsave(file.path(output_dir, sprintf("%s_jaccard_heatmap.png", out_prefix)),
-         plot = p, width = max(8, 1.1 * length(sets_b) + 2), height = max(5, 0.9 * length(sets_a) + 2),
-         bg = "white")
-  message(sprintf("  heatmap 저장: %s_jaccard_heatmap.png", out_prefix))
+  # ggplot2::ggsave()는 50인치를 넘는 크기를 기본적으로 거부한다 — 클러스터/모듈
+  # 수가 많은 프로젝트(예: coexpression 모듈 100개대)끼리 비교하면 계산된 width/
+  # height가 쉽게 이를 넘어서 전체 실행이 죽는 사례가 실측 확인됨. 49인치로 캡을
+  # 씌우고, 그래도 실패하면(다른 렌더링 이슈) 히트맵만 건너뛴다 — Jaccard 행렬 CSV/
+  # best_match.csv는 이미 저장 완료된 상태라 핵심 산출물엔 영향 없음.
+  heatmap_w <- min(max(8, 1.1 * length(sets_b) + 2), 49)
+  heatmap_h <- min(max(5, 0.9 * length(sets_a) + 2), 49)
+  tryCatch({
+    ggsave(file.path(output_dir, sprintf("%s_jaccard_heatmap.png", out_prefix)),
+           plot = p, width = heatmap_w, height = heatmap_h, bg = "white", limitsize = FALSE)
+    message(sprintf("  heatmap 저장: %s_jaccard_heatmap.png", out_prefix))
+  }, error = function(e) {
+    message(sprintf("  [WARN] heatmap 저장 실패(건너뜀): %s", conditionMessage(e)))
+  })
 }
 
 dataset_pairs <- if (length(dataset_labels) >= 2) combn(dataset_labels, 2, simplify = FALSE) else list()
@@ -236,4 +246,4 @@ prov_df <- data.frame(
 )
 write.csv(prov_df, file.path(output_dir, "cluster_cross_dataset_provenance.csv"), row.names = FALSE)
 
-message("\n[19_run_cluster_cross_dataset_comparison] Done.")
+message("\n[run_cluster_cross_dataset_comparison] Done.")

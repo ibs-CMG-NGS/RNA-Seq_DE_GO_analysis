@@ -283,8 +283,8 @@ python3 convert_de_to_gsea.py \
 [`docs/CROSS_DATASET_GUIDE.md`](docs/CROSS_DATASET_GUIDE.md)를 참고하세요.
 
 ```bash
-Rscript src/analysis/18_run_cross_dataset_go_comparison.R configs/cross_dataset_X.yaml
-Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dataset_X.yaml
+Rscript src/cross_dataset/run_cross_dataset_go_comparison.R configs/cross_dataset_X.yaml
+Rscript src/cross_dataset/run_cluster_cross_dataset_comparison.R configs/cross_dataset_X.yaml
 ```
 
 ---

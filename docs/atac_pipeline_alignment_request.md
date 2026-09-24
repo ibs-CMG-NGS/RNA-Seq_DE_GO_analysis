@@ -1,7 +1,7 @@
 # atac-seq-da-analysis 구조 정합 요청서
 
 **작성 배경**: RNA-Seq_DE_GO_analysis에 cross-dataset 비교 도구
-(`18_run_cross_dataset_go_comparison.R`, `19_run_cluster_cross_dataset_comparison.R`)
+(`run_cross_dataset_go_comparison.R`, `run_cluster_cross_dataset_comparison.R`)
 를 만들면서 atac-seq-da-analysis의 산출물을 직접 대조 확인했다. GO enrichment
 결과 자체(clusterProfiler `enrichGO`/`enrichKEGG` 표)는 두 파이프라인이 이미
 동일한 컬럼 스키마(`ID`/`Description`/`GeneRatio`/`BgRatio`/`p.adjust`/`geneID`/
@@ -84,8 +84,8 @@ RNA는 Entrez(`readable=FALSE`), ATAC은 SYMBOL(`readable=TRUE`)이다. 어느 �
 
 ## 4. 기대 효과
 
-2a/2b가 반영된 신규 프로젝트에 한해서는 `18_run_cross_dataset_go_comparison.R`/
-`19_run_cluster_cross_dataset_comparison.R`의 `ASSAY_PRESETS`에서 `atac` 프리셋이
+2a/2b가 반영된 신규 프로젝트에 한해서는 `run_cross_dataset_go_comparison.R`/
+`run_cluster_cross_dataset_comparison.R`의 `ASSAY_PRESETS`에서 `atac` 프리셋이
 `rna` 프리셋과 동일해지므로, 어댑터 분기 자체를 지울 수 있다. 2c까지 반영되면
 Entrez/SYMBOL 변환 로직도 제거 가능 — 결과적으로 "cross-dataset 비교"가 정말
 `assay` 구분 없이 config(어떤 프로젝트 config를 참조하느냐)만으로 관리되는 하나의

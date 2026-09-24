@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# 18_run_cross_dataset_go_comparison.R
+# run_cross_dataset_go_comparison.R
 #
 # Cross-dataset(프로젝트 간) GO term 비교. 12_run_cross_condition_comparison.R의
 # A(common)/B(flip)/C(exclusive)/D(mixed) 로직을 "조건"이 아니라 "데이터셋(프로젝트)"을
@@ -35,8 +35,8 @@
 # signed -log10(FDR)을 GO term 단위로 그려 concordant(같은 방향)/discordant(반대
 # 방향)/데이터셋-특이 term을 구분한다.
 #
-# 사용법: Rscript 18_run_cross_dataset_go_comparison.R <cross_dataset_config.yaml>
-#   예) Rscript 18_run_cross_dataset_go_comparison.R \
+# 사용법: Rscript run_cross_dataset_go_comparison.R <cross_dataset_config.yaml>
+#   예) Rscript run_cross_dataset_go_comparison.R \
 #         configs/cross_dataset_hiy-mouse-vs-human.yaml
 
 suppressPackageStartupMessages({
@@ -76,7 +76,7 @@ ASSAY_PRESETS <- list(
 # --- 1. 인자 파싱 & config 로드 ---
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 1) {
-  stop("Usage: Rscript 18_run_cross_dataset_go_comparison.R <cross_dataset_config.yaml>")
+  stop("Usage: Rscript run_cross_dataset_go_comparison.R <cross_dataset_config.yaml>")
 }
 cross_cfg <- yaml::read_yaml(args[1])
 
@@ -112,6 +112,18 @@ if (length(dataset_labels) != length(unique(dataset_labels))) {
 }
 project_cfgs <- lapply(datasets_cfg, function(d) yaml::read_yaml(d$config))
 names(project_cfgs) <- dataset_labels
+
+# --- 1b. meta_analysis 설정(Fisher/Stouffer term-level p-value 결합) ---
+# 순수 additive 기능이라 config에 이 블록이 없어도 기본값(fisher, 무가중치)으로
+# 자동 활성화된다 — 하위 호환.
+meta_cfg <- cross_cfg$meta_analysis %||% list()
+meta_enabled <- if (is.null(meta_cfg$enabled)) TRUE else isTRUE(meta_cfg$enabled)
+meta_method <- meta_cfg$method %||% "fisher"
+meta_weights_cfg <- meta_cfg$weights %||% list()
+meta_weights <- setNames(vapply(dataset_labels, function(lbl) {
+  w <- meta_weights_cfg[[lbl]]
+  if (is.null(w)) 1.0 else as.numeric(w)
+}, numeric(1)), dataset_labels)
 
 # 프로젝트 config의 output_dir은 그 프로젝트의 "본가" 레포(RNA-Seq_DE_GO_analysis
 # 또는 atac-seq-da-analysis) 작업 디렉토리를 기준으로 한 상대경로로 적혀 있다(각
@@ -163,11 +175,11 @@ rr_threshold <- semantic_cfg$threshold %||% rrvgo_global_cfg$threshold %||% 0.7
 up_color   <- project_cfgs[[dataset_labels[1]]]$plot_aesthetics$volcano$up_color   %||% "#FF5733"
 down_color <- project_cfgs[[dataset_labels[1]]]$plot_aesthetics$volcano$down_color %||% "#3375FF"
 
-message(sprintf("[18_run_cross_dataset_go_comparison] Datasets (%d): %s",
+message(sprintf("[run_cross_dataset_go_comparison] Datasets (%d): %s",
                  length(dataset_labels), paste(dataset_labels, collapse = ", ")))
-message(sprintf("[18_run_cross_dataset_go_comparison] Pairs (%d): %s",
+message(sprintf("[run_cross_dataset_go_comparison] Pairs (%d): %s",
                  length(pairs), paste(pairs, collapse = ", ")))
-message(sprintf("[18_run_cross_dataset_go_comparison] GO ontologies: %s",
+message(sprintf("[run_cross_dataset_go_comparison] GO ontologies: %s",
                  paste(go_ontologies, collapse = ", ")))
 
 # --- 2b. 데이터셋별 Entrez -> SYMBOL 매핑 테이블 (gene-level Jaccard용) ---
@@ -209,7 +221,7 @@ conditions <- condition_meta$id
 if (length(conditions) < 2) stop("[FATAL] cross-dataset comparison requires at least 2 (dataset, pair) conditions.")
 
 min_conditions_common <- cross_cfg$min_datasets_common %||% round(0.75 * length(conditions))
-message(sprintf("[18_run_cross_dataset_go_comparison] min_conditions_common = %d (of %d)",
+message(sprintf("[run_cross_dataset_go_comparison] min_conditions_common = %d (of %d)",
                  min_conditions_common, length(conditions)))
 
 groups <- split(condition_meta$id, condition_meta$dataset)[dataset_labels]
@@ -273,6 +285,50 @@ load_condition_direction <- function(condition_id, direction, ont) {
   d$direction <- toupper(direction)
   d$GeneRatioNum <- sapply(d$GeneRatio, parse_ratio)
   d[, c("ID", "Description", "p.adjust", "FoldEnrichment", "GeneRatioNum", "Count", "geneID", "condition", "direction")]
+}
+
+# load_condition_direction()과 동일한 파일을 읽지만 fdr_cutoff/fold_enrichment_cutoff
+# 유의성 필터를 걸지 않는다 — meta_analysis(Fisher/Stouffer term-level p-value 결합)는
+# "개별로는 유의하지 않았던 term"까지 포함한 전체 테스트 결과가 있어야 의미가 있다
+# (선택 편향 없이 정식 메타분석을 하려면 이미 유의한 것만 모으면 안 됨). 03_enrichment_
+# analysis.R이 애초에 enrichGO/enrichKEGG를 pvalueCutoff=1.0으로 돌려서 테스트된 term을
+# 전부 저장해두기 때문에(실측 확인) 별도 재계산/백필 없이 같은 파일을 다시 읽기만 하면 된다.
+load_condition_direction_raw <- function(condition_id, direction, ont) {
+  meta_row <- condition_meta[condition_meta$id == condition_id, ]
+  ds <- dataset_meta[[meta_row$dataset]]
+  pair <- meta_row$actual_pair
+  path <- if (toupper(ont) == "KEGG") {
+    ds$preset$pairwise_kegg_path(ds$project_dir, pair, direction)
+  } else {
+    ds$preset$pairwise_go_path(ds$project_dir, pair, direction, ont)
+  }
+  if (!file.exists(path)) return(NULL)
+  d <- tryCatch(read.csv(path, stringsAsFactors = FALSE), error = function(e) NULL)
+  if (is.null(d) || nrow(d) == 0) return(NULL)
+  if (toupper(ont) == "KEGG") d$ID <- normalize_kegg_id(d$ID)
+  d <- d[!is.na(d$p.adjust), c("ID", "Description", "p.adjust")]
+  if (nrow(d) == 0) return(NULL)
+  # KEGG ID 정규화(organism prefix 제거)로 같은 ID가 중복될 수 있음 — 최소
+  # p.adjust(가장 강한 신호)의 행만 남긴다.
+  d <- d[order(d$p.adjust), ]
+  d[!duplicated(d$ID), ]
+}
+
+# Fisher's method(기본, 가중치 없음) 또는 Stouffer's Z(가중치 지원)로 여러 데이터셋의
+# p-value를 하나로 결합한다. 외부 패키지 불필요(base R pchisq/qnorm/pnorm만 사용).
+combine_pvalues <- function(p_vec, method = "fisher", weights = NULL) {
+  p_vec <- p_vec[!is.na(p_vec)]
+  k <- length(p_vec)
+  if (k == 0) return(NA_real_)
+  if (k == 1) return(p_vec[1])
+  p_vec <- pmin(pmax(p_vec, 1e-300), 1 - 1e-16)  # 수치적 안정성(0/1 근접값 방어)
+  if (method == "stouffer") {
+    w <- if (is.null(weights)) rep(1, k) else weights
+    z <- sum(w * qnorm(1 - p_vec)) / sqrt(sum(w^2))
+    return(1 - pnorm(z))
+  }
+  x2 <- -2 * sum(log(p_vec))
+  1 - pchisq(x2, df = 2 * k)
 }
 
 condition_count_log <- character()
@@ -345,7 +401,7 @@ draw_pair_scatter <- function(all_df, ont) {
 
 # --- 6. 온톨로지별 실행 (A. common / B. flip / C. exclusive / D. mixed + rrvgo + 시각화) ---
 run_for_ontology <- function(ont) {
-  message(sprintf("\n[18_run_cross_dataset_go_comparison] === Ontology: %s ===", ont))
+  message(sprintf("\n[run_cross_dataset_go_comparison] === Ontology: %s ===", ont))
 
   parts <- list()
   for (cond in conditions) {
@@ -365,7 +421,7 @@ run_for_ontology <- function(ont) {
     }
   }
   if (length(parts) == 0) {
-    message(sprintf("  [18_run_cross_dataset_go_comparison] No significant terms found for any condition/direction in %s — skipping.", ont))
+    message(sprintf("  [run_cross_dataset_go_comparison] No significant terms found for any condition/direction in %s — skipping.", ont))
     return(invisible(NULL))
   }
   all_df <- do.call(rbind, parts)
@@ -770,12 +826,62 @@ run_for_ontology <- function(ont) {
       }, error = function(e) message(paste("  [viz] UpSet plot (", dir, ") failed:", conditionMessage(e))))
     }
   }
+
+  # --- E. meta_analysis: term-level 결합 p-value(Fisher/Stouffer) ---
+  # A(common)의 threshold 카운팅과 달리, 테스트된 term 전체(유의하지 않았던 것 포함)를
+  # 대상으로 한다 — "개별로는 다 애매(p~0.06)했지만 결합하면 유의"한 term까지 잡아내는
+  # 게 정식 meta-analysis의 핵심 가치이므로, 이미 유의했던 term(all_df)만 보면 안 된다.
+  if (meta_enabled) {
+    for (dir in c("up", "down")) {
+      raw_by_condition <- setNames(lapply(conditions, load_condition_direction_raw,
+                                           direction = dir, ont = ont), conditions)
+      raw_nonnull <- raw_by_condition[!vapply(raw_by_condition, is.null, logical(1))]
+      if (length(raw_nonnull) == 0) {
+        message(sprintf("  [meta_pvalue_%s] 0 conditions with data — skipped.", dir))
+        next
+      }
+      term_universe <- unique(unlist(lapply(raw_nonnull, function(d) d$ID)))
+      raw_all <- do.call(rbind, raw_nonnull)
+      term_desc_raw <- function(id) {
+        rows <- raw_all[raw_all$ID == id, ]
+        rows$Description[which.min(rows$p.adjust)]
+      }
+      meta_weights_for_condition <- vapply(conditions, function(cid) {
+        meta_weights[[condition_meta$dataset[condition_meta$id == cid]]]
+      }, numeric(1))
+
+      rows <- lapply(term_universe, function(id) {
+        p_by_cond <- vapply(conditions, function(cid) {
+          rd <- raw_by_condition[[cid]]
+          if (is.null(rd)) return(NA_real_)
+          v <- rd$p.adjust[rd$ID == id]
+          if (length(v) == 0) NA_real_ else v[1]
+        }, numeric(1))
+        present <- !is.na(p_by_cond)
+        w <- if (meta_method == "stouffer") meta_weights_for_condition[present] else NULL
+        combined_p <- combine_pvalues(p_by_cond[present], method = meta_method, weights = w)
+        row <- c(list(
+          `GO ID` = id,
+          `GO Term` = term_desc_raw(id),
+          `N Datasets Tested` = sum(present),
+          `N Datasets Significant` = sum(present & p_by_cond < fdr_cutoff),
+          `Combined P-value` = combined_p
+        ), setNames(as.list(p_by_cond), conditions))
+        as.data.frame(row, check.names = FALSE, stringsAsFactors = FALSE)
+      })
+      meta_df <- do.call(rbind, rows)
+      meta_df$`Combined Q-value` <- p.adjust(meta_df$`Combined P-value`, method = "BH")
+      meta_df <- meta_df[order(meta_df$`Combined P-value`), ]
+      write.csv(meta_df, file.path(output_dir, sprintf("meta_pvalue_%s_%s.csv", dir, ont)), row.names = FALSE)
+      message(sprintf("  [meta_pvalue_%s] %d terms (method=%s)", dir, nrow(meta_df), meta_method))
+    }
+  }
 }
 
 for (ont in go_ontologies) run_for_ontology(ont)
 
 # --- 카테고리별 CSV 취합 -> final_cross_dataset_go_results.xlsx ---
-message("\n[18_run_cross_dataset_go_comparison] Building final_cross_dataset_go_results.xlsx...")
+message("\n[run_cross_dataset_go_comparison] Building final_cross_dataset_go_results.xlsx...")
 
 read_csv_if_nonempty <- function(path) {
   if (!file.exists(path)) return(NULL)
@@ -794,7 +900,8 @@ exclusive_labels <- vapply(exclusives, function(spec) paste0("exclusive_", spec$
 mixed_labels <- paste0("mixed_", names(groups))
 category_labels <- c("common_up_strict", "common_up_loose", "common_down_strict", "common_down_loose",
                       "common_up_strict_rrvgo", "common_down_strict_rrvgo",
-                      flip_labels, exclusive_labels, mixed_labels)
+                      flip_labels, exclusive_labels, mixed_labels,
+                      "meta_pvalue_up", "meta_pvalue_down")
 
 wb <- createWorkbook()
 header_style <- createStyle(fontSize = 11, fontName = "Arial", textDecoration = "bold",
@@ -830,7 +937,7 @@ for (label in category_labels) {
     addWorksheet(wb, sheet_name)
     writeData(wb, sheet_name, d, headerStyle = header_style)
     addStyle(wb, sheet_name, header_style, rows = 1, cols = seq_len(ncol(d)), gridExpand = TRUE)
-    pval_cols <- grep("P-value|P value|Adj P|Jaccard", colnames(d))
+    pval_cols <- grep("P-value|P value|Adj P|Jaccard|Combined", colnames(d))
     text_cols <- setdiff(seq_len(ncol(d)), pval_cols)
     if (length(text_cols) > 0) addStyle(wb, sheet_name, text_style, rows = 2:(nrow(d) + 1), cols = text_cols, gridExpand = TRUE)
     if (length(pval_cols) > 0) addStyle(wb, sheet_name, pvalue_style, rows = 2:(nrow(d) + 1), cols = pval_cols, gridExpand = TRUE)
@@ -846,10 +953,13 @@ if (length(sheet_summary) == 0) {
 
 info_df <- data.frame(
   Parameter = c("Datasets", "Pairs", "GO ontologies", "FDR cutoff", "Fold enrichment cutoff",
-                "min_conditions_common", "Flips", "Exclusives", "Sheets with results"),
+                "min_conditions_common", "Flips", "Exclusives", "Sheets with results",
+                "Meta-analysis enabled", "Meta-analysis method", "Meta-analysis weights"),
   Value = c(paste(dataset_labels, collapse = ", "), paste(pairs, collapse = ", "),
             paste(go_ontologies, collapse = ", "), fdr_cutoff, fe_cutoff, min_conditions_common,
-            length(flips), length(exclusives), length(sheet_summary)),
+            length(flips), length(exclusives), length(sheet_summary),
+            meta_enabled, meta_method,
+            paste(sprintf("%s=%.2f", names(meta_weights), meta_weights), collapse = ", ")),
   stringsAsFactors = FALSE
 )
 addWorksheet(wb, "Analysis_Info")
@@ -859,8 +969,8 @@ setColWidths(wb, "Analysis_Info", cols = 1:2, widths = c(25, 40))
 
 cross_dataset_xlsx <- file.path(output_dir, "final_cross_dataset_go_results.xlsx")
 saveWorkbook(wb, cross_dataset_xlsx, overwrite = TRUE)
-message(sprintf("[18_run_cross_dataset_go_comparison] final_cross_dataset_go_results.xlsx saved: %s (%d sheets with data)",
+message(sprintf("[run_cross_dataset_go_comparison] final_cross_dataset_go_results.xlsx saved: %s (%d sheets with data)",
                  cross_dataset_xlsx, length(sheet_summary)))
 
 writeLines(condition_count_log, file.path(output_dir, "condition_count_log.txt"))
-message("\n[18_run_cross_dataset_go_comparison] Done.")
+message("\n[run_cross_dataset_go_comparison] Done.")

@@ -21,8 +21,8 @@
 
 | 스크립트 | 비교 대상 | 원형(포팅 출처) |
 |---|---|---|
-| `18_run_cross_dataset_go_comparison.R` | pairwise DE/DA 비교(조건 vs Control)의 GO/KEGG term — common/flip/exclusive/mixed + rrvgo 의미론적 축약 + heatmap/dotplot/UpSet/pair 산점도 | atac-seq-da-analysis `20_run_cross_species_go_comparison.R` |
-| `19_run_cluster_cross_dataset_comparison.R` | time-series 클러스터 / coexpression 모듈의 GO term-set Jaccard 유사도(다대다 매칭) | atac-seq-da-analysis `28_run_cluster_cross_species_comparison.R`(N-데이터셋으로 일반화) |
+| `run_cross_dataset_go_comparison.R` | pairwise DE/DA 비교(조건 vs Control)의 GO/KEGG term — common/flip/exclusive/mixed + rrvgo 의미론적 축약 + heatmap/dotplot/UpSet/pair 산점도 | atac-seq-da-analysis `20_run_cross_species_go_comparison.R` |
+| `run_cluster_cross_dataset_comparison.R` | time-series 클러스터 / coexpression 모듈의 GO term-set Jaccard 유사도(다대다 매칭) | atac-seq-da-analysis `28_run_cluster_cross_species_comparison.R`(N-데이터셋으로 일반화) |
 
 ## config 스키마
 
@@ -42,7 +42,7 @@ datasets:
     config: "configs/config_2026-06-hiy-human-rna.yml"
     assay: "rna"
 
-pairs:                                                  # 18번만 사용(19번은 불필요)
+pairs:                                                  # run_cross_dataset_go_comparison.R만 사용(run_cluster_cross_dataset_comparison.R은 불필요)
   - "Acute_1D_vs_Control"
   - "Acute_3D_vs_Control"
 
@@ -57,7 +57,7 @@ RNA-Seq_DE_GO_analysis와 atac-seq-da-analysis는 GO enrichment 표 자체(컬�
 동일하지만 그 표를 어디서 찾는지·geneID가 어떤 포맷인지가 다르다(직접 대조
 확인, [`docs/atac_pipeline_alignment_request.md`](atac_pipeline_alignment_request.md)에
 차이 전체 정리 및 장기적으로 이 차이를 없애자는 정합 제안). `assay` 필드로
-데이터셋마다 다음 프리셋 중 하나를 선택한다(18/19번 스크립트 안에 내장):
+데이터셋마다 다음 프리셋 중 하나를 선택한다(두 스크립트 안에 내장):
 
 | | `assay: rna`(기본값) | `assay: atac` |
 |---|---|---|
@@ -84,13 +84,39 @@ atac-seq-da-analysis 프로젝트를 참조할 때는 `config:`에 **그 레포�
 다르면 `pair_map`으로 매핑한다. Condition id(그래프 축 라벨, common/flip 판정
 키)는 항상 정식 이름을 쓰고 파일 경로 생성에만 매핑된 이름이 쓰인다.
 
+### `meta_analysis`: term-level 결합 p-value (정식 meta-analysis)
+
+`common_*`(A 카테고리)는 "term이 몇 개 데이터셋에서 개별적으로 유의했는가"를
+세는 threshold 카운팅이다. `meta_analysis`는 이와 별개로, **테스트된 term
+전체**(유의 여부 무관, `03_enrichment_analysis.R`이 `pvalueCutoff=1.0`으로
+저장해둔 전체 결과 재사용)를 대상으로 데이터셋 간 p-value를 **Fisher's method**
+또는 **Stouffer's Z**로 결합한다. "개별로는 다 애매(예: p~0.06)했지만 결합하면
+유의"한 term까지 잡아낸다는 게 threshold 카운팅과의 핵심 차이 — 결과는
+common/flip/exclusive/mixed와 별개 산출물(`meta_pvalue_{up,down}_{ont}.csv`)로
+추가되며, 이 블록이 config에 아예 없어도 기본값(fisher, 무가중치)으로 자동
+켜진다(순수 additive, 하위 호환).
+
+```yaml
+meta_analysis:
+  enabled: true        # 기본값
+  method: "fisher"      # "fisher"(기본, 가중치 없음) | "stouffer"(가중치 지원)
+  weights: null          # stouffer일 때만 사용, 데이터셋 라벨 단위. null이면 균등(1)
+                          # 예: {mouse_rna: 0.5}  # 검정력이 약한 데이터셋(예:
+                          # pairwise n=1)을 결합 시 덜 신뢰하고 싶을 때
+```
+
+`method: fisher`는 가중치를 지원하지 않는다(모든 데이터셋을 동등하게 취급) —
+특정 데이터셋을 덜 신뢰하고 싶으면 `stouffer` + `weights`를 쓸 것. 실제 사용
+예: `configs/cross_dataset_gse-acute-brain.yaml`(GSE142445가 pairwise n=1이라
+가중치 0.5 적용).
+
 ## Worked Example 3종 (실제 검증에 쓰인 config, 그대로 재실행 가능)
 
 ### 1. RNA vs RNA (다른 종) — `configs/cross_dataset_hiy-mouse-vs-human-rna.yaml`
 
 ```bash
-Rscript src/analysis/18_run_cross_dataset_go_comparison.R configs/cross_dataset_hiy-mouse-vs-human-rna.yaml
-Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dataset_hiy-mouse-vs-human-rna.yaml
+Rscript src/cross_dataset/run_cross_dataset_go_comparison.R configs/cross_dataset_hiy-mouse-vs-human-rna.yaml
+Rscript src/cross_dataset/run_cluster_cross_dataset_comparison.R configs/cross_dataset_hiy-mouse-vs-human-rna.yaml
 ```
 
 `flip_DOWN_mouse_to_UP_human_BP.csv`의 최상위 term이 `chromosome segregation`,
@@ -100,7 +126,7 @@ Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dat
 ### 2. ATAC vs ATAC (다른 종) — `configs/cross_dataset_hiy-mouse-vs-human-atac.yaml`
 
 ```bash
-Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dataset_hiy-mouse-vs-human-atac.yaml
+Rscript src/cross_dataset/run_cluster_cross_dataset_comparison.R configs/cross_dataset_hiy-mouse-vs-human-atac.yaml
 ```
 
 atac-seq-da-analysis 자신의 `20_run_cross_species_go_comparison.R`/
@@ -111,8 +137,8 @@ atac-seq-da-analysis 자신의 `20_run_cross_species_go_comparison.R`/
 ### 3. RNA vs ATAC (같은 종) — `configs/cross_dataset_hiy-mouse-rna-vs-atac.yaml`
 
 ```bash
-Rscript src/analysis/18_run_cross_dataset_go_comparison.R configs/cross_dataset_hiy-mouse-rna-vs-atac.yaml
-Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dataset_hiy-mouse-rna-vs-atac.yaml
+Rscript src/cross_dataset/run_cross_dataset_go_comparison.R configs/cross_dataset_hiy-mouse-rna-vs-atac.yaml
+Rscript src/cross_dataset/run_cluster_cross_dataset_comparison.R configs/cross_dataset_hiy-mouse-rna-vs-atac.yaml
 ```
 
 지금까지 어느 레포에도 없었던 새로운 종류의 비교 — "이 유전자가 전사체 수준에서
@@ -121,7 +147,7 @@ Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dat
 
 ## 산출물
 
-`18_run_cross_dataset_go_comparison.R` (output_dir 바로 아래):
+`run_cross_dataset_go_comparison.R` (output_dir 바로 아래):
 
 | 파일 | 내용 |
 |---|---|
@@ -133,10 +159,11 @@ Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dat
 | `pair_scatter_{pair}_{A}_vs_{B}_{ont}.png`/`_data.csv` | pair별 두 데이터셋 직접 산점도(concordant/discordant/데이터셋-특이 색 구분) |
 | `cross_dataset_{heatmap,dotplot}_{ont}.png` | 전체 후보 term heatmap/dot plot |
 | `upset_{UP,DOWN}_{ont}.png`/`_membership_*.csv` | (dataset::pair)별 유의 term 중첩 구조 |
+| `meta_pvalue_{up,down}_{ont}.csv` | 테스트된 term 전체에 대한 Fisher/Stouffer 결합 p-value·q-value + 데이터셋별 원시 p.adjust(`meta_analysis` 참고) |
 | `final_cross_dataset_go_results.xlsx` | 위 카테고리 전부를 시트별로 취합 |
 | `condition_count_log.txt` | 조건×방향별 유의 term 수 로그(sparsity 경고 포함) |
 
-`19_run_cluster_cross_dataset_comparison.R` (데이터셋 쌍마다):
+`run_cluster_cross_dataset_comparison.R` (데이터셋 쌍마다):
 
 | 파일 | 내용 |
 |---|---|
@@ -149,7 +176,7 @@ Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dat
 
 - **모든 조건/데이터셋에서 `0 significant terms`가 찍히면 십중팔구 경로 문제다.**
   `assay` 값이 그 데이터셋의 실제 구조와 맞는지, `pair_map`이 필요한데 빠지지
-  않았는지부터 확인. `condition_count_log.txt`(18번) 또는 콘솔 로그(19번)에서
+  않았는지부터 확인. `condition_count_log.txt`(run_cross_dataset_go_comparison.R) 또는 콘솔 로그(run_cluster_cross_dataset_comparison.R)에서
   어느 (데이터셋, pair/클러스터) 조합이 비어있는지 바로 확인 가능.
 - **다른 레포(ATAC) 데이터셋을 참조했는데 경로가 안 맞으면**: 그 데이터셋
   `config:`에 적힌 project config의 `output_dir`이 상대경로인 경우, "그 config

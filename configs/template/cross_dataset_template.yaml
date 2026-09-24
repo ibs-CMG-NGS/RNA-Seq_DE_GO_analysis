@@ -9,8 +9,8 @@
 # 결정), 독립 스크립트로 직접 실행한다.
 #
 # 사용법:
-#   Rscript src/analysis/18_run_cross_dataset_go_comparison.R configs/cross_dataset_X.yaml
-#   Rscript src/analysis/19_run_cluster_cross_dataset_comparison.R configs/cross_dataset_X.yaml
+#   Rscript src/cross_dataset/run_cross_dataset_go_comparison.R configs/cross_dataset_X.yaml
+#   Rscript src/cross_dataset/run_cluster_cross_dataset_comparison.R configs/cross_dataset_X.yaml
 #
 # 참고 구현체(용어/설계가 여기서 유래): atac-seq-da-analysis의
 #   20_run_cross_species_go_comparison.R / 28_run_cluster_cross_species_comparison.R
@@ -84,7 +84,7 @@ fold_enrichment_cutoff: 2.0
 sparsity_warn_threshold: 20        # 조건×방향 유의 term 수가 이 미만이면 경고 로그
 gene_overlap_jaccard_warn: 0.3     # flip term의 gene Jaccard가 이 미만이면 low_overlap 플래그
 # min_datasets_common 미설정 시 기본값 = round(0.75 * length(datasets) * length(pairs))
-# (18번 스크립트는 (dataset, pair) 조합 전체를 "조건" 축으로 취급하므로 개수가 곱으로 커짐)
+# (run_cross_dataset_go_comparison.R는 (dataset, pair) 조합 전체를 "조건" 축으로 취급하므로 개수가 곱으로 커짐)
 
 semantic_filtering:
   enabled: true
@@ -96,3 +96,16 @@ visualization:
   dotplot_max_terms: 60
   cluster_terms: true
   cluster_method: average
+
+# term-level 결합 p-value(정식 meta-analysis) — A(common)의 threshold 카운팅과
+# 별개로, 모든 데이터셋에서 "테스트된" term 전체(유의 여부 무관)를 대상으로
+# Fisher's method/Stouffer's Z로 p-value를 결합한다. "개별로는 다 애매(p~0.06
+# 수준)했지만 결합하면 유의"한 term까지 잡아내는 게 목적 — common/flip/
+# exclusive/mixed와 별개 산출물(meta_pvalue_{up,down}_{ont}.csv + xlsx 시트)로
+# 추가되는 순수 additive 기능이라, 이 블록이 아예 없어도 기본값으로 자동 켜진다.
+meta_analysis:
+  enabled: true        # 기본값
+  method: "fisher"      # "fisher"(기본, 가중치 없음) | "stouffer"(가중치 지원)
+  weights: null          # stouffer일 때만 사용, 데이터셋 라벨 단위. null이면 균등(1).
+                          # 예: {mouse_rna: 0.5}  # 통계적 검정력이 약한 데이터셋을
+                          # 결합 시 덜 신뢰하고 싶을 때(예: pairwise n=1 등)
